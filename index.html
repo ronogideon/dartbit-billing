@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,18 +8,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
-        // Set your Gemini API Key here for local development
         const urlParams = new URLSearchParams(window.location.search);
         const urlKey = urlParams.get('apiKey');
         const storedKey = localStorage.getItem('GEMINI_API_KEY');
-        
         if (urlKey) localStorage.setItem('GEMINI_API_KEY', urlKey);
-        
-        window.process = { 
-            env: { 
-                API_KEY: urlKey || storedKey || "" 
-            } 
-        };
+        window.process = { env: { API_KEY: urlKey || storedKey || "" } };
     </script>
     <style>
         body {
@@ -26,14 +20,14 @@
             background-color: #f8fafc;
             margin: 0;
             overflow: hidden;
+            color: #1e293b;
         }
         #root { height: 100vh; width: 100vw; }
-        
-        /* Custom scrollbar */
+        ::selection { background-color: #2563eb; color: white; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 <script type="importmap">
 {

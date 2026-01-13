@@ -78,11 +78,11 @@ const Dashboard: React.FC = () => {
     <div className="space-y-6">
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">System Pulse</h1>
-          <p className="text-slate-500 text-sm">Real-time performance and subscriber metrics.</p>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Dashboard</h1>
+          <p className="text-slate-600 text-sm mt-1">Real-time performance and subscriber metrics.</p>
         </div>
         <div className="flex gap-2">
-          <button className="flex-1 sm:flex-none px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold hover:bg-slate-50 shadow-sm transition-colors text-slate-600">
+          <button className="flex-1 sm:flex-none px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold hover:bg-slate-50 shadow-sm transition-colors text-slate-700">
             Export Analytics
           </button>
         </div>
@@ -90,12 +90,12 @@ const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         {stats.map((stat, i) => (
-          <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 transition-all hover:shadow-md hover:border-blue-100 group">
+          <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 transition-all hover:shadow-md hover:border-blue-200 group">
             <div className={`${stat.bg} p-3 rounded-xl transition-transform group-hover:scale-110`}>
               <stat.icon className={stat.color} size={24} />
             </div>
             <div>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{stat.label}</p>
+              <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{stat.label}</p>
               <h3 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">{stat.value}</h3>
             </div>
           </div>
@@ -109,8 +109,8 @@ const Dashboard: React.FC = () => {
             <div className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 px-3 py-1 rounded-full tracking-widest">Rolling 6 Months</div>
           </div>
           <div className="h-64 md:h-80">
-            {dashboardData.totalClients === 0 ? (
-               <div className="h-full w-full flex flex-col items-center justify-center text-slate-400 gap-2 border-2 border-dashed border-slate-100 rounded-2xl">
+            {dashboardData.totalClients === 0 && !loading ? (
+               <div className="h-full w-full flex flex-col items-center justify-center text-slate-400 gap-2 border-2 border-dashed border-slate-200 rounded-2xl">
                  <TrendingUp size={32} className="opacity-20" />
                  <p className="text-xs font-bold uppercase tracking-widest">No growth data yet</p>
                </div>
@@ -124,8 +124,8 @@ const Dashboard: React.FC = () => {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
+                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10, fontWeight: 700}} />
+                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10, fontWeight: 700}} />
                   <Tooltip 
                     cursor={{stroke: '#3b82f6', strokeWidth: 2}}
                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '12px' }}
@@ -137,38 +137,38 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-2xl text-white flex flex-col">
+        <div className="bg-[#0f172a] p-6 rounded-2xl border border-white/10 shadow-2xl text-white flex flex-col">
           <div className="flex items-center gap-3 mb-8">
             <div className="p-2 bg-blue-600 rounded-lg">
                 <Brain className="text-white" size={20} />
             </div>
-            <h2 className="font-bold tracking-tight">AI Strategy Core</h2>
+            <h2 className="font-bold tracking-tight text-white">AI Strategy Core</h2>
           </div>
           <div className="space-y-4 flex-1">
             {loadingInsights ? (
               <div className="space-y-4">
                 {[1, 2, 3].map(i => (
-                  <div key={i} className="h-20 bg-slate-800/50 rounded-xl animate-pulse"></div>
+                  <div key={i} className="h-20 bg-white/5 rounded-xl animate-pulse"></div>
                 ))}
               </div>
             ) : insights.length === 0 ? (
                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 gap-4">
                   <Activity className="text-slate-700" size={48} />
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest leading-loose">Waiting for network telemetry to generate insights...</p>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-loose">Waiting for network telemetry...</p>
                </div>
             ) : insights.map((item, i) => (
-              <div key={i} className="p-4 bg-slate-800/40 rounded-xl border border-white/5 hover:border-blue-500/50 transition-all group">
+              <div key={i} className="p-4 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-all group">
                 <div className="flex justify-between items-start mb-2">
                   <h4 className="text-xs font-black text-blue-400 uppercase tracking-wide">{item.title}</h4>
                   <span className="text-[9px] uppercase font-black px-2 py-0.5 rounded bg-blue-500 text-white shadow-lg shadow-blue-500/20">
                     {item.impact}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed font-medium">{item.insight}</p>
+                <p className="text-[11px] text-slate-200 leading-relaxed font-medium">{item.insight}</p>
               </div>
             ))}
           </div>
-          <div className="mt-8 pt-6 border-t border-white/5">
+          <div className="mt-8 pt-6 border-t border-white/10">
              <div className="flex items-center justify-between text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
                 <span>Gemini Engine</span>
                 <span className="text-green-500">Live</span>

@@ -21,17 +21,16 @@ export interface BillingPlan {
   id: string;
   name: string;
   type: ConnectionType;
-  speedLimit: string; // e.g. "10M/10M"
+  speedLimit: string;
   price: number;
-  validityDisplay: string; // e.g. "30 Days", "1 Hour"
-  durationMinutes: number; // For system logic/expiries
+  validityDisplay: string;
+  durationMinutes: number;
   description: string;
 }
 
 export interface Client {
   id: string;
   username: string;
-  // Added password property to match its usage in ClientList.tsx and server.js
   password?: string;
   fullName: string;
   email: string;
@@ -40,9 +39,10 @@ export interface Client {
   planId: string;
   status: ClientStatus;
   balance: number;
-  expiryDate: string;
-  bandwidthUsage: number; // in GB
+  expiryDate: string; // Now supports ISO format with time
+  bandwidthUsage: number;
   address: string;
+  lastSeen?: string; // ISO timestamp
 }
 
 export interface RouterNode {
@@ -54,7 +54,7 @@ export interface RouterNode {
   password?: string;
   status: RouterStatus;
   cpu: number;
-  memory: number; // Free memory in MB
+  memory: number;
   totalMemory?: number;
   sessions: number;
   uptime: string;

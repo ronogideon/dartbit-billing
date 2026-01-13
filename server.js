@@ -10,7 +10,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- PERSISTENT STORAGE SETUP ---
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
@@ -19,7 +18,8 @@ const DB = {
   clients: path.join(DATA_DIR, 'clients.json'),
   plans: path.join(DATA_DIR, 'plans.json'),
   payments: path.join(DATA_DIR, 'payments.json'),
-  discovery: path.join(DATA_DIR, 'discovered.json')
+  discovery: path.join(DATA_DIR, 'discovered.json'),
+  usage_logs: path.join(DATA_DIR, 'usage_logs.json')
 };
 
 const readJson = (file) => {
@@ -33,10 +33,8 @@ const writeJson = (file, data) => {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 };
 
-// State for real-time speed calculation
 const throughputCache = {};
 
-// --- MIKROTIK HARDWARE INTERFACE ---
 async function getRouterConn(router) {
   return new RouterOSAPI({
     host: router.host,
@@ -47,15 +45,12 @@ async function getRouterConn(router) {
   });
 }
 
-// Push Subscriber to Router
 async function syncClientToRouter(router, client, plan) {
   const api = await getRouterConn(router);
   try {
     await api.connect();
     const isPpp = client.connectionType === 'PPPoE';
     const path = isPpp ? '/ppp/secret' : '/ip/hotspot/user';
-    
-    // Check if user exists
     const users = await api.write(`${path}/print`, [`?name=${client.username}`]);
     const userData = {
       name: client.username,
@@ -63,7 +58,6 @@ async function syncClientToRouter(router, client, plan) {
       profile: plan ? plan.name : 'default',
       comment: `dartbit:${client.id}`
     };
-
     if (users.length > 0) {
       await api.write(`${path}/set`, [{ '.id': users[0]['.id'], ...userData }]);
     } else {
@@ -75,20 +69,14 @@ async function syncClientToRouter(router, client, plan) {
   }
 }
 
-// Push Plan to Router
 async function syncPlanToRouter(router, plan) {
   const api = await getRouterConn(router);
   try {
     await api.connect();
     const isPpp = plan.type === 'PPPoE';
     const path = isPpp ? '/ppp/profile' : '/ip/hotspot/user-profile';
-    
     const profiles = await api.write(`${path}/print`, [`?name=${plan.name}`]);
-    const profileData = {
-      name: plan.name,
-      'rate-limit': plan.speedLimit
-    };
-
+    const profileData = { name: plan.name, 'rate-limit': plan.speedLimit };
     if (profiles.length > 0) {
       await api.write(`${path}/set`, [{ '.id': profiles[0]['.id'], ...profileData }]);
     } else {
@@ -105,11 +93,13 @@ async function getRouterStats(router) {
   try {
     await api.connect();
     const resources = await api.write('/system/resource/print');
+    const health = await api.write('/system/health/print').catch(() => []);
     const ppp = await api.write('/ppp/active/print');
     const hs = await api.write('/ip/hotspot/active/print');
     await api.close();
 
     const res = resources[0];
+    const h = health[0] || {};
     return {
       ...router,
       status: 'ONLINE',
@@ -118,6 +108,8 @@ async function getRouterStats(router) {
       totalMemory: Math.round(parseInt(res['total-memory']) / (1024 * 1024)),
       uptime: res['uptime'] || '0s',
       version: res['version'] || 'unknown',
+      temp: h['temperature'] || null,
+      voltage: h['voltage'] || null,
       sessions: ppp.length + hs.length,
       lastSync: new Date().toLocaleString()
     };
@@ -126,7 +118,6 @@ async function getRouterStats(router) {
   }
 }
 
-// --- API ENDPOINTS ---
 app.get('/api/health', (req, res) => res.json({ success: true }));
 
 app.get('/api/routers', async (req, res) => {
@@ -153,28 +144,29 @@ app.post('/api/clients', async (req, res) => {
   const clients = readJson(DB.clients);
   const client = req.body;
   const idx = clients.findIndex(c => c.id === client.id);
-  
   if (idx > -1) clients[idx] = client;
   else clients.unshift(client);
-  
   writeJson(DB.clients, clients);
 
-  // Sync with Online Routers
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
   const plans = readJson(DB.plans);
   const plan = plans.find(p => p.id === client.planId);
-  
-  for (const router of routers) {
-    await syncClientToRouter(router, client, plan);
-  }
+  for (const router of routers) await syncClientToRouter(router, client, plan);
+  res.json({ success: true });
+});
 
+app.delete('/api/clients/:id', (req, res) => {
+  const clients = readJson(DB.clients).filter(c => c.id !== req.params.id);
+  writeJson(DB.clients, clients);
   res.json({ success: true });
 });
 
 app.get('/api/mikrotik/active-sessions', async (req, res) => {
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
   const clients = readJson(DB.clients);
+  const logs = readJson(DB.usage_logs);
   const sessions = [];
+  let clientsUpdated = false;
 
   for (const router of routers) {
     const api = await getRouterConn(router);
@@ -186,10 +178,14 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
 
       [...ppp, ...hs].forEach(s => {
         const username = s.name || s.user;
-        const dbClient = clients.find(c => c.username === username);
+        const dbClientIdx = clients.findIndex(c => c.username === username);
         const sessId = `${router.id}-${username}`;
         
-        // Correct Byte calculation from MikroTik labels
+        if (dbClientIdx > -1) {
+          clients[dbClientIdx].lastSeen = new Date().toISOString();
+          clientsUpdated = true;
+        }
+
         const bin = parseInt(s['bytes-in']) || 0;
         const bout = parseInt(s['bytes-out']) || 0;
 
@@ -197,29 +193,37 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
         if (throughputCache[sessId]) {
           const delta = (Date.now() - throughputCache[sessId].t) / 1000;
           if (delta > 0) {
-            // Speed = (NewBytes - OldBytes) * 8 bits / seconds
             dRate = Math.max(0, (bin - throughputCache[sessId].bin) * 8 / delta);
             uRate = Math.max(0, (bout - throughputCache[sessId].bout) * 8 / delta);
           }
         }
         throughputCache[sessId] = { t: Date.now(), bin, bout };
 
+        const clientLogs = logs.filter(l => l.username === username);
+        const prevTotalIn = clientLogs.reduce((acc, l) => acc + l.bytesIn, 0);
+        const prevTotalOut = clientLogs.reduce((acc, l) => acc + l.bytesOut, 0);
+
         sessions.push({
           id: s['.id'],
-          fullName: dbClient ? dbClient.fullName : 'Unknown Device',
+          fullName: dbClientIdx > -1 ? clients[dbClientIdx].fullName : 'Guest Device',
           username: username,
           connectionType: s.service === 'pppoe' ? 'PPPoE' : 'Hotspot',
           uptime: s.uptime,
           downloadBytes: bin,
           uploadBytes: bout,
+          totalDownload: prevTotalIn + bin,
+          totalUpload: prevTotalOut + bout,
           downloadRate: dRate,
           uploadRate: uRate,
           connectedNode: router.name,
-          address: s.address || s['caller-id']
+          address: s.address || s['caller-id'] || 'Unknown',
+          expiryDate: dbClientIdx > -1 ? clients[dbClientIdx].expiryDate : null
         });
       });
     } catch (e) {}
   }
+
+  if (clientsUpdated) writeJson(DB.clients, clients);
   res.json(sessions);
 });
 
@@ -229,77 +233,43 @@ app.post('/api/plans', async (req, res) => {
   const plans = readJson(DB.plans);
   const plan = req.body;
   const idx = plans.findIndex(p => p.id === plan.id);
-  
   if (idx > -1) plans[idx] = plan;
   else plans.unshift(plan);
-  
   writeJson(DB.plans, plans);
 
-  // Sync Plan Profile to Routers
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
-  for (const router of routers) {
-    await syncPlanToRouter(router, plan);
-  }
-
+  for (const router of routers) await syncPlanToRouter(router, plan);
   res.json({ success: true });
 });
-
-app.post('/api/discovery/clear', (req, res) => {
-  writeJson(DB.discovery, []);
-  res.json({ success: true });
-});
-
-app.get('/api/discovered', (req, res) => res.json(readJson(DB.discovery)));
 
 app.get('/boot', (req, res) => {
   const ip = req.query.ip || req.ip;
   const discovered = readJson(DB.discovery);
-  discovered.push({ 
-    id: `d-${Date.now()}`, 
-    host: ip, 
-    name: 'New Node Signal', 
-    seen: new Date().toISOString() 
-  });
+  discovered.push({ id: `d-${Date.now()}`, host: ip, seen: new Date().toISOString() });
   writeJson(DB.discovery, discovered);
-  
   res.set('Content-Type', 'text/plain');
-
   const rsc = `
-#-------------------------------------------------------------------------------
-# dartbit Unified Provisioning Script v4.0 (Zero-Touch)
-#-------------------------------------------------------------------------------
-/log info "--- [DARTBIT] INITIALIZING CORE INFRASTRUCTURE ---"
-
-# 1. Identity & Locale
+/log info "--- [DARTBIT] STARTING ADVANCED PROVISIONING ---"
 /system identity set name="dartbit-ActiveNode"
-/system clock set time-zone-name=Africa/Nairobi
-
-# 2. API & Access (Bridge Bridge)
+:do { /user add name=dartbit group=full password=dartbit123 comment="dartbit Automation Bridge" } on-error={ /user set [find name=dartbit] group=full password=dartbit123 }
+:do { /interface bridge add name=dartbit-service-bridge comment="dartbit Client Access Bridge" } on-error={ :log info "Bridge exists" }
+:foreach i in=[/interface ethernet find where !(name~"ether1")] do={
+  :local ifName [/interface ethernet get $i name]
+  :do { /interface bridge port add bridge=dartbit-service-bridge interface=$ifName } on-error={ :log debug "Port already bridged" }
+}
+:do { /ip pool add name=dartbit-pool-pppoe ranges=10.10.10.2-10.10.254.254 } on-error={ /ip pool set [find name=dartbit-pool-pppoe] ranges=10.10.10.2-10.10.254.254 }
+:do { /ip pool add name=dartbit-pool-hotspot ranges=10.11.10.2-10.11.254.254 } on-error={ /ip pool set [find name=dartbit-pool-hotspot] ranges=10.11.10.2-10.11.254.254 }
+/ip dns set allow-remote-requests=yes servers=8.8.8.8,1.1.1.1
+:if ([:len [/ip firewall nat find comment="dartbit WAN NAT"]] = 0) do={ /ip firewall nat add action=masquerade chain=srcnat comment="dartbit WAN NAT" out-interface=ether1 }
+:do { /ppp profile add name=dartbit-pppoe-default local-address=10.10.10.1 remote-address=dartbit-pool-pppoe dns-server=8.8.8.8 use-encryption=yes } on-error={ /ppp profile set [find name=dartbit-pppoe-default] local-address=10.10.10.1 remote-address=dartbit-pool-pppoe }
+:if ([:len [/interface pppoe-server server find service-name=dartbit-pppoe]] = 0) do={ /interface pppoe-server server add disabled=no interface=dartbit-service-bridge service-name=dartbit-pppoe default-profile=dartbit-pppoe-default one-session-per-host=yes }
+:do { /ip hotspot profile add name=hsprof-dartbit hotspot-address=10.11.10.1 dns-name=connect.dartbit login-by=http-chap,cookie } on-error={ /ip hotspot profile set [find name=hsprof-dartbit] hotspot-address=10.11.10.1 }
+:if ([:len [/ip hotspot find name=dartbit-hotspot]] = 0) do={ /ip hotspot add name=dartbit-hotspot interface=dartbit-service-bridge profile=hsprof-dartbit address-pool=dartbit-pool-hotspot disabled=no }
+:do { /ip hotspot user profile add name=dartbit-hotspot-default shared-users=1 status-autorefresh=1m } on-error={ /ip hotspot user profile set [find name=dartbit-hotspot-default] shared-users=1 }
 /ip service enable api
 /ip service set api port=8728
-:do { /user add name=dartbit group=full password=dartbit123 comment="dartbit Automation Bridge" } on-error={ /log warning "User exists" }
-
-# 3. Network Foundations
-/ip pool add name=dartbit-pool-pppoe ranges=10.10.10.2-10.10.254.254
-/ip pool add name=dartbit-pool-hotspot ranges=10.11.10.2-10.11.254.254
-
-# 4. Global DNS & NAT
-/ip dns set allow-remote-requests=yes servers=8.8.8.8,1.1.1.1
-/ip firewall nat add action=masquerade chain=srcnat comment="dartbit WAN NAT"
-
-# 5. PPPoE Server Configuration
-/ppp profile add name=dartbit-pppoe-default local-address=10.10.10.1 remote-address=dartbit-pool-pppoe dns-server=8.8.8.8 use-encryption=yes
-/interface pppoe-server server add disabled=no interface=ether2 service-name=dartbit-pppoe default-profile=dartbit-pppoe-default one-session-per-host=yes
-
-# 6. Hotspot Configuration
-/ip hotspot profile add name=hsprof-dartbit hotspot-address=10.11.10.1 dns-name=connect.dartbit login-by=http-chap,cookie
-/ip hotspot add name=dartbit-hotspot interface=ether3 profile=hsprof-dartbit address-pool=dartbit-pool-hotspot disabled=no
-/ip hotspot user profile add name=dartbit-hotspot-default shared-users=1 status-autorefresh=1m
-
-/log info "--- [DARTBIT] PROVISIONING COMPLETE: NODE IS ONLINE ---"
-#-------------------------------------------------------------------------------
+/log info "--- [DARTBIT] PROVISIONING COMPLETE ---"
   `;
-  
   res.send(rsc);
 });
 

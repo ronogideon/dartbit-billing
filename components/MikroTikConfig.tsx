@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Network, 
@@ -15,7 +16,9 @@ import {
   User,
   Hash,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  Server,
+  Cable
 } from 'lucide-react';
 import { mikrotikService } from '../services/mikrotikService.ts';
 import { RouterStatus, RouterNode } from '../types.ts';
@@ -124,26 +127,8 @@ const MikroTikConfig: React.FC = () => {
     } catch (err) {} finally { setActionLoading(null); }
   };
 
-  /**
-   * FIX FOR 301 REDIRECT ERROR:
-   * MikroTik's /tool fetch doesn't follow HTTP redirects (301/302).
-   * Most cloud providers (Railway, Vercel, etc.) force HTTPS. 
-   * If the fetch starts on http://, it gets a 301 to https:// and fails.
-   */
-  const protocol = window.location.protocol; // Includes ':' e.g. 'https:'
-  const hostname = window.location.hostname;
-  
-  // Logic to determine base URL without forcing port 5000 in production
-  let baseUrl = '';
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    // Development environment
-    baseUrl = `http://${hostname}:5000`;
-  } else {
-    // Production cloud environment
-    // Use the current protocol (likely https) to avoid 301 redirects
-    baseUrl = `${protocol}//${hostname}`;
-  }
-  
+  // Using the production URL provided by the user for the provisioning script
+  const baseUrl = "https://dartbit-billing-production.up.railway.app";
   const loaderCommand = `/tool fetch url="${baseUrl}/boot?ip=auto" dst-path=dartbit.rsc check-certificate=no; :delay 2s; /import dartbit.rsc`;
 
   return (
@@ -154,7 +139,7 @@ const MikroTikConfig: React.FC = () => {
               <Network className="text-blue-600" size={24} />
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Access Nodes</h1>
            </div>
-           <p className="text-slate-500 text-sm mt-1">Live hardware and resource status across your network.</p>
+           <p className="text-slate-500 text-sm mt-1 font-medium">Live hardware and resource status across your network.</p>
         </div>
         <button 
           onClick={handleStartProvisioning} 
@@ -168,7 +153,7 @@ const MikroTikConfig: React.FC = () => {
         {loading && routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center gap-6">
             <Loader2 className="animate-spin text-blue-600" size={48} />
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">Scanning Network Hardware...</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Scanning Network Hardware...</p>
           </div>
         ) : routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center text-center px-10">
@@ -176,18 +161,18 @@ const MikroTikConfig: React.FC = () => {
               <Network size={40} className="text-slate-200" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-2">No Active Nodes</h3>
-            <p className="text-slate-400 text-sm max-w-sm mx-auto">Start by provisioning your first MikroTik router to monitor CPU, RAM, and active sessions.</p>
+            <p className="text-slate-500 text-sm max-w-sm mx-auto">Start by provisioning your first MikroTik router to monitor CPU, RAM, and active sessions.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Board Name</th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center">Resources</th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center">Sessions</th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="px-8 py-5 text-[11px] font-bold text-slate-600 uppercase tracking-wider">Board Name</th>
+                  <th className="px-8 py-5 text-[11px] font-bold text-slate-600 uppercase tracking-wider text-center">Resources</th>
+                  <th className="px-8 py-5 text-[11px] font-bold text-slate-600 uppercase tracking-wider text-center">Sessions</th>
+                  <th className="px-8 py-5 text-[11px] font-bold text-slate-600 uppercase tracking-wider">Status</th>
+                  <th className="px-8 py-5 text-[11px] font-bold text-slate-600 uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -196,18 +181,18 @@ const MikroTikConfig: React.FC = () => {
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-4">
                         <div className={`p-3 rounded-2xl ${router.status === RouterStatus.ONLINE ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                          <Network size={20} />
+                          <Server size={20} />
                         </div>
                         <div>
                           <span className="text-sm font-bold text-slate-900 block">{router.name}</span>
-                          <span className="text-[10px] font-mono text-slate-400">{router.host}</span>
+                          <span className="text-[10px] font-mono text-slate-500 font-bold">{router.host}</span>
                         </div>
                       </div>
                     </td>
                     <td className="px-8 py-6">
                       <div className="flex flex-col gap-2 max-w-[120px] mx-auto">
-                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
-                          <span>CPU</span>
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-600">
+                          <span>CPU Load</span>
                           <span className={router.cpu > 80 ? 'text-red-500' : 'text-slate-900'}>{router.cpu}%</span>
                         </div>
                         <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -218,12 +203,12 @@ const MikroTikConfig: React.FC = () => {
                     <td className="px-8 py-6 text-center">
                       <div className="flex flex-col items-center">
                          <span className="text-sm font-black text-slate-900">{router.sessions}</span>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase">Live Clients</span>
+                         <span className="text-[9px] font-bold text-slate-500 uppercase">Live Clients</span>
                       </div>
                     </td>
                     <td className="px-8 py-6">
                       <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-                        router.status === RouterStatus.ONLINE ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                        router.status === RouterStatus.ONLINE ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
                       }`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${router.status === RouterStatus.ONLINE ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                         {router.status}
@@ -253,7 +238,7 @@ const MikroTikConfig: React.FC = () => {
       </div>
 
       {isProvisioning && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-2xl w-full border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                 <div className="flex items-center gap-3 text-slate-900">
@@ -268,31 +253,28 @@ const MikroTikConfig: React.FC = () => {
             <div className="p-8 space-y-8 overflow-y-auto">
               {discoveryStatus === 'waiting' ? (
                   <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-                      <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl flex gap-4">
-                        <AlertTriangle className="text-amber-600 shrink-0" size={24} />
+                      <div className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex gap-4">
+                        <Cable className="text-blue-600 shrink-0" size={24} />
                         <div className="space-y-1">
-                          <h4 className="text-sm font-bold text-amber-900">Connection Requirement</h4>
-                          <p className="text-xs text-amber-700 leading-relaxed">
-                            Run the command below in your MikroTik Terminal. 
-                            <strong>Note:</strong> We are using an absolute URL to prevent 301 redirect errors on cloud platforms.
+                          <h4 className="text-sm font-bold text-blue-900">Auto-Port Configuration</h4>
+                          <p className="text-xs text-blue-700 leading-relaxed">
+                            Connect your uplink fiber/ethernet to <strong>Ether1</strong>. 
+                            The system will bridge all other ports (Ether2+) for client access automatically.
                           </p>
                         </div>
                       </div>
 
                       <div className="space-y-4">
-                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Provisioning Command</label>
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Provisioning Command</label>
                         <div className="bg-slate-900 rounded-2xl p-6 font-mono text-xs text-blue-300 break-all relative group shadow-inner border border-slate-800 leading-relaxed">
                             {loaderCommand}
-                            <button 
-                              onClick={() => { navigator.clipboard.writeText(loaderCommand); }} 
-                              className="absolute right-4 top-4 p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all active:scale-90"
-                            >
+                            <button onClick={() => navigator.clipboard.writeText(loaderCommand)} className="absolute right-4 top-4 p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all">
                               <Copy size={18} />
                             </button>
                         </div>
                       </div>
 
-                      <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed border-slate-100 rounded-3xl">
+                      <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed border-slate-200 rounded-3xl">
                         <div className="relative">
                           <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-25"></div>
                           <div className="relative bg-blue-600 p-3 rounded-full text-white">
@@ -300,31 +282,30 @@ const MikroTikConfig: React.FC = () => {
                           </div>
                         </div>
                         <div className="text-center">
-                          <p className="text-sm font-black text-slate-900 uppercase tracking-widest">Awaiting Router Pulse</p>
-                          <p className="text-xs text-slate-400 mt-1">Listening for incoming signal from your hardware...</p>
+                          <p className="text-sm font-black text-slate-900 uppercase tracking-widest">Listening for Node Pulse</p>
                         </div>
                       </div>
                   </div>
               ) : (
                   <div className="space-y-8 animate-in zoom-in-95">
-                      <div className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex gap-4">
-                        <ShieldCheck className="text-blue-600 shrink-0" size={24} />
+                      <div className="p-6 bg-green-50 border border-green-100 rounded-2xl flex gap-4">
+                        <ShieldCheck className="text-green-600 shrink-0" size={24} />
                         <div className="space-y-1">
-                          <h4 className="text-sm font-bold text-blue-900">Signal Received!</h4>
-                          <p className="text-xs text-blue-700">Router detected at <strong>{discoveredInfo.host}</strong>. Name your node to finish.</p>
+                          <h4 className="text-sm font-bold text-green-900">Node Identified</h4>
+                          <p className="text-xs text-green-700">Router detected at <strong>{discoveredInfo.host}</strong>. Provisioning bridge now.</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Friendly Name</label>
+                          <label className="text-[10px] font-black text-slate-500 uppercase">Node Display Name</label>
                           <div className="relative">
                             <Network className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                             <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.name} onChange={(e) => setNewRouter({...newRouter, name: e.target.value})} />
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">API Port</label>
+                          <label className="text-[10px] font-black text-slate-500 uppercase">API Port</label>
                           <div className="relative">
                             <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                             <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.port} onChange={(e) => setNewRouter({...newRouter, port: e.target.value})} />
@@ -334,14 +315,14 @@ const MikroTikConfig: React.FC = () => {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">API User</label>
+                          <label className="text-[10px] font-black text-slate-500 uppercase">Auth User</label>
                           <div className="relative">
                             <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                             <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.username} onChange={(e) => setNewRouter({...newRouter, username: e.target.value})} />
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">API Password</label>
+                          <label className="text-[10px] font-black text-slate-500 uppercase">Auth Token</label>
                           <div className="relative">
                             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                             <input type="password" className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.password} onChange={(e) => setNewRouter({...newRouter, password: e.target.value})} />
@@ -355,7 +336,7 @@ const MikroTikConfig: React.FC = () => {
                         className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-lg flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all"
                       >
                         {actionLoading ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-                        Complete Activation
+                        Publish Node to Cloud
                       </button>
                   </div>
               )}
