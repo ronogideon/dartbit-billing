@@ -46,7 +46,7 @@ async function getRouterConn(router) {
 }
 
 /**
- * MONITORING LOGIC: Hardware & Status Retrieval
+ * MONITORING LOGIC: Hardware Telemetry Retrieval
  */
 async function getRouterStats(router) {
   const api = await getRouterConn(router);
@@ -63,11 +63,10 @@ async function getRouterStats(router) {
       status: 'ONLINE',
       cpu: parseInt(res['cpu-load']) || 0,
       memory: Math.round(parseInt(res['free-memory']) / (1024 * 1024)),
-      totalMemory: Math.round(parseInt(res['total-memory']) / (1024 * 1024)),
-      uptime: res['uptime'] || '0s',
       version: res['version'] || 'unknown',
       model: res['board-name'] || 'MikroTik Hardware',
       sessions: ppp.length + hs.length,
+      uptime: res['uptime'] || '0s',
       lastSync: new Date().toLocaleString()
     };
   } catch (err) {
@@ -76,7 +75,7 @@ async function getRouterStats(router) {
 }
 
 /**
- * CONTROL LOGIC: Remote Management Actions
+ * CONTROL LOGIC: Remote Hardware Actions
  */
 app.post('/api/routers/:id/reboot', async (req, res) => {
   const routers = readJson(DB.routers);
@@ -89,8 +88,7 @@ app.post('/api/routers/:id/reboot', async (req, res) => {
     await api.write('/system/reboot');
     res.json({ success: true });
   } catch (e) {
-    // Connection drops on reboot, which is a success signal
-    res.json({ success: true });
+    res.json({ success: true, message: 'Reboot initiated' });
   }
 });
 
@@ -113,7 +111,7 @@ app.delete('/api/routers/:id', (req, res) => {
 });
 
 /**
- * MONITORING LOGIC: Live Client Traffic
+ * MONITORING LOGIC: Live Session Metrics
  */
 app.get('/api/mikrotik/active-sessions', async (req, res) => {
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
@@ -159,7 +157,7 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
 });
 
 /**
- * PROVISIONING LOGIC: Zero Touch Handshake
+ * PROVISIONING LOGIC: Error-Correcting ZTP Handshake
  */
 app.get('/boot', (req, res) => {
   const ip = req.query.ip === 'auto' ? req.ip : (req.query.ip || req.ip);
@@ -172,23 +170,40 @@ app.get('/boot', (req, res) => {
 
   res.set('Content-Type', 'text/plain');
   res.send(`
-/log info "--- [DARTBIT] ZTP INITIATED ---"
+/log info "--- [DARTBIT] ZTP HANDSHAKE STARTING ---"
 :delay 1s
-/user add name=dartbit group=full password=dartbit123 comment="dartbit Automation"
+
+# Rectify "User Exists" error by using :do on-error
+:do { 
+    /user add name=dartbit group=full password=dartbit123 comment="dartbit Automation" 
+} on-error={ 
+    /user set [find name=dartbit] password=dartbit123 group=full comment="dartbit Automation (Updated)" 
+}
+
 /ip service enable api
 /ip service set api port=8728
-/interface bridge add name=dartbit-bridge arp=reply-only
-:foreach i in=[/interface ethernet find where !(name~"ether1")] do={
-  /interface bridge port add bridge=dartbit-bridge interface=[/interface ethernet get $i name]
+
+# Configure Bridge with error handling
+:do { 
+    /interface bridge add name=dartbit-bridge arp=reply-only 
+} on-error={ 
+    /interface bridge set [find name=dartbit-bridge] arp=reply-only 
 }
-/log info "--- [DARTBIT] ZTP COMPLETE ---"
+
+:foreach i in=[/interface ethernet find where !(name~"ether1")] do={
+    :local ifName [/interface ethernet get $i name]
+    :do { /interface bridge port add bridge=dartbit-bridge interface=$ifName } on-error={}
+}
+
+/log info "--- [DARTBIT] ZTP PROVISIONING SUCCESSFUL ---"
   `);
 });
 
 app.get('/api/discovered', (req, res) => res.json(readJson(DB.discovery)));
 app.post('/api/discovery/clear', (req, res) => { writeJson(DB.discovery, []); res.json({ success: true }); });
+app.get('/api/health', (req, res) => res.json({ success: true }));
 
-// Static & Build Handlers
+// Static Asset Serving & Build logic
 app.use(async (req, res, next) => {
   if (req.path.startsWith('/api') || req.path === '/boot') return next();
   const filePath = path.join(__dirname, req.path.endsWith('/') ? req.path + 'index.html' : req.path);
@@ -208,4 +223,4 @@ app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit ISP Engine on Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit ISP Backbone Online on Port ${PORT}`));
