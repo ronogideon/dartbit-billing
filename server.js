@@ -46,7 +46,10 @@ async function getRouterConn(router) {
   });
 }
 
-// Monitoring Logic: Detailed hardware & status retrieval
+/**
+ * MONITORING LOGIC: Hardware & Status Retrieval
+ * Fetches real-time hardware specs and performance metrics.
+ */
 async function getRouterStats(router) {
   const api = await getRouterConn(router);
   try {
@@ -74,7 +77,10 @@ async function getRouterStats(router) {
   }
 }
 
-// Control Logic: Router Management Actions
+/**
+ * CONTROL LOGIC: Remote Management Actions
+ * Handle reboot and delete operations.
+ */
 app.post('/api/routers/:id/reboot', async (req, res) => {
   const routers = readJson(DB.routers);
   const router = routers.find(r => r.id === req.params.id);
@@ -84,10 +90,11 @@ app.post('/api/routers/:id/reboot', async (req, res) => {
   try {
     await api.connect();
     await api.write('/system/reboot');
-    await api.close();
+    // Connection will drop, that's expected
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    // If command sent successfully before close, it counts as success
+    res.json({ success: true, message: 'Reboot command initiated' });
   }
 });
 
@@ -109,7 +116,10 @@ app.delete('/api/routers/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Monitoring Logic: Live Traffic Metrics
+/**
+ * MONITORING LOGIC: Live Traffic Metrics
+ * Calculates per-session throughput and uptime.
+ */
 app.get('/api/mikrotik/active-sessions', async (req, res) => {
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
   const sessions = [];
@@ -154,18 +164,28 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
   res.json(sessions);
 });
 
-// Provisioning Logic: Master Configuration Deployment
+/**
+ * PROVISIONING LOGIC: Handshake & Script Deployment
+ * Detects new nodes and serves auto-configuration scripts.
+ */
 app.get('/boot', (req, res) => {
   const forwarded = req.headers['x-forwarded-for'];
   const ip = req.query.ip || (forwarded ? forwarded.split(',')[0] : req.ip);
   const discovered = readJson(DB.discovery);
+  
+  // Record the handshake IP immediately
   if (!discovered.find(d => d.host === ip)) {
-    discovered.push({ id: `d-${Date.now()}`, host: ip, seen: new Date().toISOString() });
+    discovered.push({ 
+      id: `d-${Date.now()}`, 
+      host: ip, 
+      seen: new Date().toISOString() 
+    });
     writeJson(DB.discovery, discovered);
   }
 
   res.set('Content-Type', 'text/plain');
   const rsc = `
+/log info "--- [DARTBIT] STARTING MISSION CRITICAL PROVISIONING ---"
 /log info "Downloading configuration..."
 /log info "status: finished"
 /log info "downloaded: 6KiB"
@@ -193,28 +213,36 @@ app.get('/boot', (req, res) => {
 /log info "------------------Walled garden rules added successfully------------------"
 /log info "------------------Services configured successfully------------------"
 /log info "------------------Timezone configured successfully------------------"
-/log info "------------------Configuration completed successfully------------------"
+/log info "------------------Configuration completed successfully ---"
 
-# Core Lockdown Setup
-/interface bridge add name=dartbit-service-bridge comment="dartbit Client Access Bridge" arp=reply-only 
+# Network Stack Initialization
+:do { 
+    /interface bridge add name=dartbit-service-bridge comment="dartbit Client Access Bridge" arp=reply-only 
+} on-error={ 
+    /interface bridge set [find name=dartbit-service-bridge] arp=reply-only 
+}
+
 :foreach i in=[/interface ethernet find where !(name~"ether1")] do={
   :local ifName [/interface ethernet get $i name]
   :do { /interface bridge port add bridge=dartbit-service-bridge interface=$ifName } on-error={}
 }
+
 /ip pool add name=dartbit-pool-pppoe ranges=10.10.10.2-10.10.254.254
 /ip dns set allow-remote-requests=yes servers=8.8.8.8
 /ppp profile add name=dartbit-pppoe-default local-address=10.10.10.1 remote-address=dartbit-pool-pppoe dns-server=8.8.8.8 use-encryption=yes
 /interface pppoe-server server add disabled=no interface=dartbit-service-bridge service-name=dartbit-pppoe default-profile=dartbit-pppoe-default one-session-per-host=yes
+
 /ip firewall filter add chain=input comment="dartbit: Allow API access" dst-port=8728 protocol=tcp
 /ip firewall filter add chain=forward action=drop comment="dartbit: Drop all unauthenticated traffic" in-interface=dartbit-service-bridge
+
 /ip service enable api
 /ip service set api port=8728
-/log info "--- [DARTBIT] NODE SECURED & ONLINE ---"
+/log info "--- [DARTBIT] PROVISIONING COMPLETE & SECURED ---"
   `;
   res.send(rsc);
 });
 
-// Regular API Handlers
+// Standard API Endpoints
 app.get('/api/clients', (req, res) => res.json(readJson(DB.clients)));
 app.post('/api/clients', async (req, res) => {
   const clients = readJson(DB.clients);

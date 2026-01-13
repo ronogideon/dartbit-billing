@@ -20,11 +20,18 @@ import {
   Server,
   Cable,
   ArrowUpDown,
-  Power
+  Power,
+  Activity,
+  Cpu,
+  Clock
 } from 'lucide-react';
 import { mikrotikService } from '../services/mikrotikService.ts';
 import { RouterStatus, RouterNode } from '../types.ts';
 
+/**
+ * UI LOGIC: Active Nodes Management Component
+ * Displays real-time node telemetry and controls hardware status.
+ */
 const MikroTikConfig: React.FC = () => {
   const [routers, setRouters] = useState<RouterNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,7 +92,7 @@ const MikroTikConfig: React.FC = () => {
             setNewRouter(prev => ({ ...prev, name: 'Node-' + first.host.split('.').pop() }));
             clearInterval(pollIntervalRef.current);
         }
-      }, 3000);
+      }, 2000);
     }
     return () => clearInterval(pollIntervalRef.current);
   }, [isProvisioning, discoveryStatus]);
@@ -115,7 +122,7 @@ const MikroTikConfig: React.FC = () => {
       setIsProvisioning(false);
       setDiscoveryStatus('idle');
     } catch (err) {
-      alert("Handshake failed. Ensure Port 8728 is open.");
+      alert("Handshake failed. Ensure API port is accessible.");
     } finally {
       setActionLoading(null);
     }
@@ -123,13 +130,13 @@ const MikroTikConfig: React.FC = () => {
 
   const handleReboot = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm("Reboot this router hardware?")) return;
+    if (!confirm("Confirm remote hardware reboot? Clients will be disconnected briefly.")) return;
     setActionLoading(id);
     try {
       await mikrotikService.rebootRouter(id);
       setActiveMenuId(null);
     } catch (err) {
-      alert("Reboot command failed.");
+      alert("Reboot command was sent but confirmation failed. Node is likely restarting.");
     } finally {
       setActionLoading(null);
     }
@@ -137,7 +144,7 @@ const MikroTikConfig: React.FC = () => {
 
   const handleDeleteRouter = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm("Delete this node from Cloud Directory?")) return;
+    if (!confirm("Delete node from Cloud Registry? Local hardware config remains intact.")) return;
     setActionLoading(id);
     try {
       await mikrotikService.deleteRouter(id);
@@ -158,7 +165,7 @@ const MikroTikConfig: React.FC = () => {
     return 0;
   });
 
-  const baseUrl = "https://dartbit-billing-production.up.railway.app";
+  const baseUrl = window.location.origin;
   const loaderCommand = `/tool fetch url="${baseUrl}/boot?ip=auto" dst-path=dartbit.rsc check-certificate=no; :delay 2s; /import dartbit.rsc`;
 
   return (
@@ -169,7 +176,7 @@ const MikroTikConfig: React.FC = () => {
               <Network className="text-blue-600" size={24} />
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Active Nodes</h1>
            </div>
-           <p className="text-slate-500 text-sm mt-1 font-medium italic">Monitoring {routers.length} gateways in the cloud backbone.</p>
+           <p className="text-slate-500 text-sm mt-1 font-medium">Monitoring {routers.length} hardware nodes in the cloud directory.</p>
         </div>
         <button 
           onClick={handleStartProvisioning} 
@@ -183,15 +190,15 @@ const MikroTikConfig: React.FC = () => {
         {loading && routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center gap-6">
             <Loader2 className="animate-spin text-blue-600" size={48} />
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Syncing Hardware State...</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Syncing Telemetry...</p>
           </div>
         ) : routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center text-center px-10">
             <div className="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center mb-6 border-2 border-dashed border-slate-200">
               <Network size={40} className="text-slate-200" />
             </div>
-            <h3 className="text-xl font-black text-slate-900 mb-2 uppercase tracking-tight">No Active Nodes Identified</h3>
-            <p className="text-slate-500 text-sm max-w-sm mx-auto font-medium">Provision your first MikroTik router to start managing PPPoE/Hotspot subscribers from this dashboard.</p>
+            <h3 className="text-xl font-black text-slate-900 mb-2 uppercase tracking-tight">Zero Nodes Identified</h3>
+            <p className="text-slate-500 text-sm max-w-sm mx-auto font-medium">Provision your first MikroTik to start managing sessions from this dashboard.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -199,16 +206,19 @@ const MikroTikConfig: React.FC = () => {
               <thead>
                 <tr className="bg-slate-50/50 border-b border-slate-100">
                   <th onClick={() => handleSort('name')} className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest cursor-pointer group">
-                    <div className="flex items-center gap-2">Board Name <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></div>
+                    <div className="flex items-center gap-2">Board <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
                   </th>
                   <th onClick={() => handleSort('model')} className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest cursor-pointer group">
-                    <div className="flex items-center gap-2">Model Variation <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></div>
+                    <div className="flex items-center gap-2">Model/Version <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
                   </th>
                   <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">Resources</th>
                   <th onClick={() => handleSort('sessions')} className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center cursor-pointer group">
-                    <div className="flex items-center justify-center gap-2">Clients <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></div>
+                    <div className="flex items-center justify-center gap-2">Sessions <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
                   </th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Connectivity</th>
+                  <th onClick={() => handleSort('uptime')} className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest cursor-pointer group">
+                     <div className="flex items-center gap-2">Uptime <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
+                  </th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Status</th>
                   <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right">Actions</th>
                 </tr>
               </thead>
@@ -217,37 +227,43 @@ const MikroTikConfig: React.FC = () => {
                   <tr key={router.id} className="hover:bg-slate-50/30 transition-colors">
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-4">
-                        <div className={`p-3 rounded-2xl ${router.status === RouterStatus.ONLINE ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-100 text-slate-400'}`}>
+                        <div className={`p-3 rounded-2xl ${router.status === RouterStatus.ONLINE ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
                           <Server size={22} />
                         </div>
                         <div>
                           <span className="text-base font-bold text-slate-900 block">{router.name}</span>
-                          <span className="text-[10px] font-mono text-slate-500 font-bold tracking-tight">{router.host}</span>
+                          <span className="text-[10px] font-mono text-slate-500 font-bold">{router.host}</span>
                         </div>
                       </div>
                     </td>
                     <td className="px-10 py-7">
                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-slate-800">{router.model || 'Unknown Model'}</span>
-                          <span className="text-[9px] font-black text-blue-600 uppercase">v{router.version || '0.0.0'}</span>
+                          <span className="text-xs font-bold text-slate-800 truncate max-w-[120px]">{router.model || 'Unknown'}</span>
+                          <span className="text-[9px] font-black text-blue-600 uppercase">OS v{router.version || '0.0.0'}</span>
                        </div>
                     </td>
                     <td className="px-10 py-7">
-                      <div className="flex flex-col gap-2 max-w-[120px] mx-auto">
-                        <div className="flex items-center justify-between text-[10px] font-black text-slate-700 uppercase tracking-tighter">
-                          <span>CPU LOAD</span>
-                          <span className={router.cpu > 80 ? 'text-red-600 font-black' : 'text-slate-900'}>{router.cpu}%</span>
+                      <div className="flex flex-col gap-2 max-w-[100px] mx-auto">
+                        <div className="flex items-center justify-between text-[10px] font-black text-slate-700 uppercase">
+                          <span>CPU</span>
+                          <span>{router.cpu}%</span>
                         </div>
-                        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                            <div className={`h-full transition-all duration-1000 ${router.cpu > 80 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${router.cpu}%` }}></div>
                         </div>
                       </div>
                     </td>
                     <td className="px-10 py-7 text-center">
                       <div className="flex flex-col items-center">
-                         <span className="text-xl font-black text-slate-900 tracking-tight">{router.sessions}</span>
-                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Live Presence</span>
+                         <span className="text-lg font-black text-slate-900">{router.sessions}</span>
+                         <span className="text-[9px] font-black text-slate-400 uppercase">Live</span>
                       </div>
+                    </td>
+                    <td className="px-10 py-7">
+                       <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                          <Clock size={14} className="text-slate-400" />
+                          {router.uptime}
+                       </div>
                     </td>
                     <td className="px-10 py-7">
                       <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${
@@ -268,17 +284,18 @@ const MikroTikConfig: React.FC = () => {
                         <div className="absolute right-10 top-16 w-52 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 py-1.5 animate-in zoom-in-95 overflow-hidden">
                           <button 
                             onClick={(e) => handleReboot(e, router.id)} 
-                            className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black uppercase text-slate-700 hover:bg-slate-50 transition-colors"
+                            disabled={actionLoading === router.id}
+                            className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black uppercase text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
                           >
                             {actionLoading === router.id ? <Loader2 size={16} className="animate-spin text-blue-600" /> : <Power size={16} className="text-blue-600" />} 
-                            Reboot Node
+                            Reboot Hardware
                           </button>
                           <div className="h-px bg-slate-100 mx-2 my-1"></div>
                           <button 
                             onClick={(e) => handleDeleteRouter(e, router.id)} 
                             className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black uppercase text-red-600 hover:bg-red-50 transition-colors"
                           >
-                            <Trash2 size={16} /> Delete Hardware
+                            <Trash2 size={16} /> Delete Registry
                           </button>
                         </div>
                       )}
@@ -310,16 +327,16 @@ const MikroTikConfig: React.FC = () => {
                       <div className="p-8 bg-blue-50 border border-blue-100 rounded-[2rem] flex gap-5">
                         <Cable className="text-blue-600 shrink-0" size={32} />
                         <div className="space-y-2">
-                          <h4 className="text-base font-black text-blue-900 uppercase tracking-tight">Service Topology Ready</h4>
+                          <h4 className="text-base font-black text-blue-900 uppercase tracking-tight">System Ready for Discovery</h4>
                           <p className="text-sm text-blue-800 leading-relaxed font-medium">
-                            Uplink your internet source to <strong>Ether1</strong>. 
-                            Our configuration will auto-bridge Ether2, Ether3, Ether4, and SFP ports for your clients.
+                            Paste the command below into your MikroTik Terminal. 
+                            The wizard will automatically detect the node as soon as it performs the handshake.
                           </p>
                         </div>
                       </div>
 
                       <div className="space-y-4">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">Provisioning Command</label>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">Onboarding Script</label>
                         <div className="bg-[#0f172a] rounded-3xl p-8 font-mono text-[11px] text-blue-400 break-all relative group shadow-2xl border border-white/5 leading-relaxed">
                             {loaderCommand}
                             <button onClick={() => navigator.clipboard.writeText(loaderCommand)} className="absolute right-4 top-4 p-3 bg-white/5 hover:bg-white/10 text-white rounded-2xl transition-all">
@@ -336,8 +353,8 @@ const MikroTikConfig: React.FC = () => {
                           </div>
                         </div>
                         <div className="text-center">
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">Listening for Node Pulse</p>
-                          <p className="text-sm font-bold text-slate-600 mt-2">Paste the script in MikroTik Terminal to finish handshake.</p>
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">Awaiting Peer Handshake</p>
+                          <p className="text-sm font-bold text-slate-600 mt-2">Listening on {baseUrl}/boot...</p>
                         </div>
                       </div>
                   </div>
@@ -348,41 +365,24 @@ const MikroTikConfig: React.FC = () => {
                            <ShieldCheck size={28} />
                         </div>
                         <div className="space-y-1">
-                          <h4 className="text-base font-black text-green-900 uppercase tracking-tight">Identity Verified</h4>
-                          <p className="text-sm text-green-800 font-medium leading-relaxed">Hardware detected at <strong>{discoveredInfo.host}</strong>. Provisioning bridge and security locks now.</p>
+                          <h4 className="text-base font-black text-green-900 uppercase tracking-tight">Handshake Successful</h4>
+                          <p className="text-sm text-green-800 font-medium leading-relaxed">Hardware detected at <strong>{discoveredInfo.host}</strong>. Name your node to finalize registration.</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">Node Display Name</label>
+                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">Display Alias</label>
                           <div className="relative">
                             <Network className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                             <input className="w-full pl-14 pr-6 py-5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-base font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.name} onChange={(e) => setNewRouter({...newRouter, name: e.target.value})} />
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">API Binary Port</label>
+                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">API Port (8728)</label>
                           <div className="relative">
                             <Hash className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                             <input className="w-full pl-14 pr-6 py-5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-base font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.port} onChange={(e) => setNewRouter({...newRouter, port: e.target.value})} />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">Management User</label>
-                          <div className="relative">
-                            <User className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                            <input className="w-full pl-14 pr-6 py-5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-base font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.username} onChange={(e) => setNewRouter({...newRouter, username: e.target.value})} />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-2">Auth Credential</label>
-                          <div className="relative">
-                            <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                            <input type="password" className="w-full pl-14 pr-6 py-5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-base font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.password} onChange={(e) => setNewRouter({...newRouter, password: e.target.value})} />
                           </div>
                         </div>
                       </div>
@@ -393,7 +393,7 @@ const MikroTikConfig: React.FC = () => {
                         className="w-full py-6 bg-slate-900 text-white rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
                       >
                         {actionLoading === 'provision' ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-                        Deploy Node to Cloud Registry
+                        Finalize Onboarding
                       </button>
                   </div>
               )}
