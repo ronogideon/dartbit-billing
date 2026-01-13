@@ -27,8 +27,14 @@ import {
   Monitor,
   Zap,
   CheckCircle2,
-  WifiOff
+  WifiOff,
+  History,
+  TrendingUp,
+  ChevronRight
 } from 'lucide-react';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+} from 'recharts';
 import { BILLING_PLANS } from '../constants.ts';
 import { ClientStatus, ConnectionType, Client, BillingPlan } from '../types.ts';
 import { mikrotikService } from '../services/mikrotikService.ts';
@@ -49,7 +55,8 @@ const formatBytes = (bytes: number) => {
 };
 
 const formatSpeed = (bps: number) => {
-  if (!bps) return '0 kbps';
+  if (!bps) return '0 bps';
+  if (bps < 1000) return bps.toFixed(0) + ' bps';
   if (bps < 1000000) return (bps / 1000).toFixed(1) + ' kbps';
   return (bps / 1000000).toFixed(2) + ' Mbps';
 };
@@ -68,6 +75,9 @@ const ClientList: React.FC<ClientListProps> = ({
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | ConnectionType>('ALL');
   
   const [showModal, setShowModal] = useState(false);
+  const [inspectingClient, setInspectingClient] = useState<any | null>(null);
+  const [liveDataHistory, setLiveDataHistory] = useState<any[]>([]);
+  
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -99,7 +109,6 @@ const ClientList: React.FC<ClientListProps> = ({
       
       setActiveSessions(fetchedSessions);
       
-      // Combine Client Database with Live Sessions
       const processedClients = fetchedClients.map(client => {
         const session = fetchedSessions.find(s => s.username === client.username);
         return {
@@ -109,21 +118,31 @@ const ClientList: React.FC<ClientListProps> = ({
           uploadRate: session?.uploadRate || 0,
           uptime: session?.uptime || null,
           downloadBytes: session?.downloadBytes || (client.bandwidthUsage * 1024 * 1024 * 1024),
-          uploadBytes: session?.uploadBytes || 0
+          uploadBytes: session?.uploadBytes || 0,
+          hardwareAddress: session?.address || 'N/A',
+          connectedNode: session?.connectedNode || 'None'
         };
       });
 
+      if (inspectingClient) {
+        const current = processedClients.find(c => c.id === inspectingClient.id);
+        if (current) {
+          setInspectingClient(current);
+          setLiveDataHistory(prev => {
+            const next = [...prev, { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), down: current.downloadRate, up: current.uploadRate }].slice(-20);
+            return next;
+          });
+        }
+      }
+
       let finalDisplay;
       if (realtimeOnly) {
-        // For Live Sessions tab, we show anyone currently authenticated
         finalDisplay = processedClients.filter(c => c.isOnline);
       } else {
-        // For All Clients tab, we show everyone and filter by billing status if requested
         finalDisplay = filterStatus ? processedClients.filter(c => c.status === filterStatus) : processedClients;
       }
 
       setClients(finalDisplay);
-      
       setCounts({
         ALL: finalDisplay.length,
         PPPOE: finalDisplay.filter(c => c.connectionType === ConnectionType.PPPOE).length,
@@ -142,7 +161,7 @@ const ClientList: React.FC<ClientListProps> = ({
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(() => loadData(true), 5000); 
+    const interval = setInterval(() => loadData(true), inspectingClient ? 1500 : 5000); 
     
     const closeMenu = () => setActiveMenuId(null);
     window.addEventListener('click', closeMenu);
@@ -151,7 +170,7 @@ const ClientList: React.FC<ClientListProps> = ({
       clearInterval(interval);
       window.removeEventListener('click', closeMenu);
     };
-  }, [realtimeOnly, filterStatus]);
+  }, [realtimeOnly, filterStatus, inspectingClient?.id]);
 
   const handleOpenModal = (client?: any) => {
     if (client) {
@@ -164,7 +183,7 @@ const ClientList: React.FC<ClientListProps> = ({
         email: client.email,
         connectionType: client.connectionType,
         username: client.username,
-        password: '***',
+        password: client.password || '',
         planId: client.planId,
         expiryDate: new Date(client.expiryDate).toISOString().slice(0, 16),
         address: client.address
@@ -193,6 +212,7 @@ const ClientList: React.FC<ClientListProps> = ({
     const clientPayload: Client = {
       id: editingClientId || `c${Date.now()}`,
       username: formData.username,
+      password: formData.password,
       fullName: `${formData.firstName} ${formData.lastName}`.trim(),
       email: formData.email,
       phone: formData.phone,
@@ -210,7 +230,7 @@ const ClientList: React.FC<ClientListProps> = ({
       await loadData();
       setShowModal(false);
     } catch (err) {
-      alert("Failed to save client.");
+      alert("Failed to save client to bridge.");
     } finally {
       setIsSubmitting(false);
     }
@@ -313,7 +333,7 @@ const ClientList: React.FC<ClientListProps> = ({
                 <tr>
                   <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Subscriber</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Plan</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Billing Status</th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Connectivity</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Traffic</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
@@ -321,7 +341,7 @@ const ClientList: React.FC<ClientListProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredClients.map((client) => (
-                  <tr key={client.id} className="hover:bg-blue-50/20 transition-colors group">
+                  <tr key={client.id} onClick={() => setInspectingClient(client)} className="hover:bg-blue-50/20 cursor-pointer transition-colors group">
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-4">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm relative ${
@@ -385,7 +405,7 @@ const ClientList: React.FC<ClientListProps> = ({
                         </div>
                         {client.isOnline && (
                           <div className="flex gap-2">
-                             <span className="text-[9px] font-bold text-slate-500">Live: {formatSpeed(client.downloadRate)}</span>
+                             <span className="text-[9px] font-bold text-blue-400">Live: {formatSpeed(client.downloadRate)}</span>
                           </div>
                         )}
                       </div>
@@ -399,14 +419,14 @@ const ClientList: React.FC<ClientListProps> = ({
                       </button>
                       {activeMenuId === client.id && (
                         <div className="absolute right-8 top-12 w-48 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-1 animate-in fade-in zoom-in-95 duration-200 text-left">
-                           <button onClick={() => handleOpenModal(client)} className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-600">
-                             <Edit2 size={14} /> Inspect Account
+                           <button onClick={(e) => { e.stopPropagation(); handleOpenModal(client); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-600">
+                             <Edit2 size={14} /> Update Credentials
                            </button>
                            {client.isOnline && (
                              <>
                                <div className="h-px bg-slate-50 mx-2 my-1"></div>
-                               <button onClick={() => {}} className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50">
-                                 <Activity size={14} /> Terminate Session
+                               <button onClick={(e) => { e.stopPropagation(); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50">
+                                 <Activity size={14} /> Kill Active Session
                                </button>
                              </>
                            )}
@@ -421,6 +441,7 @@ const ClientList: React.FC<ClientListProps> = ({
         )}
       </div>
 
+      {/* Floating Network Monitor */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
         <div className="px-6 py-3 bg-slate-900 text-white rounded-2xl flex items-center gap-6 shadow-2xl border border-white/10 backdrop-blur-md">
            <div className="flex items-center gap-3">
@@ -438,18 +459,92 @@ const ClientList: React.FC<ClientListProps> = ({
                  <span className="text-sm font-black text-green-400">{formatSpeed(totalCurrentUpSpeed)}</span>
               </div>
            </div>
-           <div className="w-px h-8 bg-white/10"></div>
-           <div className="flex items-center gap-3">
-              <div className="p-1.5 bg-green-600 rounded-lg">
-                 <Zap size={14} className="text-white" />
-              </div>
-              <div className="flex flex-col">
-                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Live Presence</span>
-                 <span className="text-sm font-black text-white">{counts.ONLINE} Online</span>
-              </div>
-           </div>
         </div>
       </div>
+
+      {/* INSPECT DRAWER */}
+      {inspectingClient && (
+        <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl z-[150] flex flex-col animate-in slide-in-from-right duration-300 border-l border-slate-100">
+           <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                 <div className="p-2 bg-blue-600 rounded-lg text-white">
+                   <Monitor size={20} />
+                 </div>
+                 <h2 className="text-xl font-bold text-slate-900">Live Inspect</h2>
+              </div>
+              <button onClick={() => setInspectingClient(null)} className="p-2 text-slate-400 hover:text-slate-900"><X size={24} /></button>
+           </div>
+           
+           <div className="flex-1 overflow-y-auto p-8 space-y-8">
+              <div className="flex flex-col items-center text-center">
+                 <div className={`w-20 h-20 rounded-3xl flex items-center justify-center text-white text-3xl font-black mb-4 shadow-xl ${inspectingClient.isOnline ? 'bg-green-600' : 'bg-slate-300'}`}>
+                    {inspectingClient.fullName.charAt(0)}
+                 </div>
+                 <h3 className="text-xl font-black text-slate-900">{inspectingClient.fullName}</h3>
+                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{inspectingClient.username} • {inspectingClient.phone}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                    <p className="text-[10px] font-black text-blue-600 uppercase mb-1">Current Down</p>
+                    <p className="text-lg font-black text-blue-700">{formatSpeed(inspectingClient.downloadRate)}</p>
+                 </div>
+                 <div className="p-4 bg-green-50 rounded-2xl border border-green-100">
+                    <p className="text-[10px] font-black text-green-600 uppercase mb-1">Current Up</p>
+                    <p className="text-lg font-black text-green-700">{formatSpeed(inspectingClient.uploadRate)}</p>
+                 </div>
+              </div>
+
+              {inspectingClient.isOnline && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Real-time Bandwidth</h4>
+                    <span className="flex items-center gap-1 text-[9px] font-bold text-green-500"><Zap size={10} /> Live API Link</span>
+                  </div>
+                  <div className="h-48 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={liveDataHistory}>
+                        <defs>
+                          <linearGradient id="colorDown" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="time" hide />
+                        <YAxis hide />
+                        <Tooltip />
+                        <Area type="monotone" dataKey="down" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorDown)" isAnimationActive={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-4 pt-4 border-t border-slate-50">
+                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Network Context</h4>
+                 <div className="space-y-3">
+                    <div className="flex justify-between items-center p-3 rounded-xl bg-slate-50 text-sm">
+                       <span className="text-slate-500 font-medium">Host Address</span>
+                       <span className="font-bold text-slate-900">{inspectingClient.hardwareAddress}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 rounded-xl bg-slate-50 text-sm">
+                       <span className="text-slate-500 font-medium">Gateway Node</span>
+                       <span className="font-bold text-slate-900">{inspectingClient.connectedNode}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 rounded-xl bg-slate-50 text-sm">
+                       <span className="text-slate-500 font-medium">Subscription End</span>
+                       <span className="font-bold text-blue-600">{inspectingClient.expiryDate}</span>
+                    </div>
+                 </div>
+              </div>
+
+              <button className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all">
+                <History size={18} /> View Payment History
+              </button>
+           </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">

@@ -47,6 +47,59 @@ async function getRouterConn(router) {
   });
 }
 
+// Push Subscriber to Router
+async function syncClientToRouter(router, client, plan) {
+  const api = await getRouterConn(router);
+  try {
+    await api.connect();
+    const isPpp = client.connectionType === 'PPPoE';
+    const path = isPpp ? '/ppp/secret' : '/ip/hotspot/user';
+    
+    // Check if user exists
+    const users = await api.write(`${path}/print`, [`?name=${client.username}`]);
+    const userData = {
+      name: client.username,
+      password: client.password || '1234',
+      profile: plan ? plan.name : 'default',
+      comment: `dartbit:${client.id}`
+    };
+
+    if (users.length > 0) {
+      await api.write(`${path}/set`, [{ '.id': users[0]['.id'], ...userData }]);
+    } else {
+      await api.write(`${path}/add`, [userData]);
+    }
+    await api.close();
+  } catch (e) {
+    console.error(`Sync failed for router ${router.name}:`, e.message);
+  }
+}
+
+// Push Plan to Router
+async function syncPlanToRouter(router, plan) {
+  const api = await getRouterConn(router);
+  try {
+    await api.connect();
+    const isPpp = plan.type === 'PPPoE';
+    const path = isPpp ? '/ppp/profile' : '/ip/hotspot/user-profile';
+    
+    const profiles = await api.write(`${path}/print`, [`?name=${plan.name}`]);
+    const profileData = {
+      name: plan.name,
+      'rate-limit': plan.speedLimit
+    };
+
+    if (profiles.length > 0) {
+      await api.write(`${path}/set`, [{ '.id': profiles[0]['.id'], ...profileData }]);
+    } else {
+      await api.write(`${path}/add`, [profileData]);
+    }
+    await api.close();
+  } catch (e) {
+    console.error(`Plan sync failed for router ${router.name}:`, e.message);
+  }
+}
+
 async function getRouterStats(router) {
   const api = await getRouterConn(router);
   try {
@@ -96,12 +149,25 @@ app.delete('/api/routers/:id', (req, res) => {
 
 app.get('/api/clients', (req, res) => res.json(readJson(DB.clients)));
 
-app.post('/api/clients', (req, res) => {
+app.post('/api/clients', async (req, res) => {
   const clients = readJson(DB.clients);
-  const idx = clients.findIndex(c => c.id === req.body.id);
-  if (idx > -1) clients[idx] = req.body;
-  else clients.unshift(req.body);
+  const client = req.body;
+  const idx = clients.findIndex(c => c.id === client.id);
+  
+  if (idx > -1) clients[idx] = client;
+  else clients.unshift(client);
+  
   writeJson(DB.clients, clients);
+
+  // Sync with Online Routers
+  const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
+  const plans = readJson(DB.plans);
+  const plan = plans.find(p => p.id === client.planId);
+  
+  for (const router of routers) {
+    await syncClientToRouter(router, client, plan);
+  }
+
   res.json({ success: true });
 });
 
@@ -122,6 +188,8 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
         const username = s.name || s.user;
         const dbClient = clients.find(c => c.username === username);
         const sessId = `${router.id}-${username}`;
+        
+        // Correct Byte calculation from MikroTik labels
         const bin = parseInt(s['bytes-in']) || 0;
         const bout = parseInt(s['bytes-out']) || 0;
 
@@ -129,8 +197,9 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
         if (throughputCache[sessId]) {
           const delta = (Date.now() - throughputCache[sessId].t) / 1000;
           if (delta > 0) {
-            dRate = (bin - throughputCache[sessId].bin) * 8 / delta;
-            uRate = (bout - throughputCache[sessId].bout) * 8 / delta;
+            // Speed = (NewBytes - OldBytes) * 8 bits / seconds
+            dRate = Math.max(0, (bin - throughputCache[sessId].bin) * 8 / delta);
+            uRate = Math.max(0, (bout - throughputCache[sessId].bout) * 8 / delta);
           }
         }
         throughputCache[sessId] = { t: Date.now(), bin, bout };
@@ -143,8 +212,8 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
           uptime: s.uptime,
           downloadBytes: bin,
           uploadBytes: bout,
-          downloadRate: Math.max(0, dRate),
-          uploadRate: Math.max(0, uRate),
+          downloadRate: dRate,
+          uploadRate: uRate,
           connectedNode: router.name,
           address: s.address || s['caller-id']
         });
@@ -155,12 +224,23 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
 });
 
 app.get('/api/plans', (req, res) => res.json(readJson(DB.plans)));
-app.post('/api/plans', (req, res) => {
+
+app.post('/api/plans', async (req, res) => {
   const plans = readJson(DB.plans);
-  const idx = plans.findIndex(p => p.id === req.body.id);
-  if (idx > -1) plans[idx] = req.body;
-  else plans.unshift(req.body);
+  const plan = req.body;
+  const idx = plans.findIndex(p => p.id === plan.id);
+  
+  if (idx > -1) plans[idx] = plan;
+  else plans.unshift(plan);
+  
   writeJson(DB.plans, plans);
+
+  // Sync Plan Profile to Routers
+  const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
+  for (const router of routers) {
+    await syncPlanToRouter(router, plan);
+  }
+
   res.json({ success: true });
 });
 
@@ -171,7 +251,6 @@ app.post('/api/discovery/clear', (req, res) => {
 
 app.get('/api/discovered', (req, res) => res.json(readJson(DB.discovery)));
 
-// --- DYNAMIC ONE-STEP PROVISIONING ENDPOINT ---
 app.get('/boot', (req, res) => {
   const ip = req.query.ip || req.ip;
   const discovered = readJson(DB.discovery);
@@ -187,38 +266,43 @@ app.get('/boot', (req, res) => {
 
   const rsc = `
 #-------------------------------------------------------------------------------
-# dartbit Unified Provisioning Script v3.0
+# dartbit Unified Provisioning Script v4.0 (Zero-Touch)
 #-------------------------------------------------------------------------------
-/log info "--- [DARTBIT] Starting Cloud-Enabled Deployment ---"
+/log info "--- [DARTBIT] INITIALIZING CORE INFRASTRUCTURE ---"
 
-# 1. System Identity & Time
-/system identity set name="dartbit-Node"
+# 1. Identity & Locale
+/system identity set name="dartbit-ActiveNode"
 /system clock set time-zone-name=Africa/Nairobi
 
-# 2. API & Management
+# 2. API & Access (Bridge Bridge)
 /ip service enable api
 /ip service set api port=8728
+:do { /user add name=dartbit group=full password=dartbit123 comment="dartbit Automation Bridge" } on-error={ /log warning "User exists" }
 
-# 3. Network Resources
-/ip pool add name=dartbit-pool ranges=10.10.0.10-10.10.255.254
-/ppp profile add name=dartbit-pppoe local-address=10.10.0.1 remote-address=dartbit-pool dns-server=8.8.8.8
-/ip hotspot profile add name=hsprof-dartbit hotspot-address=10.10.1.1 login-by=http-chap,cookie
-/ip hotspot user profile add name=dartbit-default shared-users=1 status-autorefresh=1m
+# 3. Network Foundations
+/ip pool add name=dartbit-pool-pppoe ranges=10.10.10.2-10.10.254.254
+/ip pool add name=dartbit-pool-hotspot ranges=10.11.10.2-10.11.254.254
 
-# 4. Global Security & Traffic
-/ip firewall nat add action=masquerade chain=srcnat comment="dartbit NAT"
+# 4. Global DNS & NAT
+/ip dns set allow-remote-requests=yes servers=8.8.8.8,1.1.1.1
+/ip firewall nat add action=masquerade chain=srcnat comment="dartbit WAN NAT"
 
-# 5. API Bridge User
-:do { /user add name=dartbit group=full password=dartbit123 comment="dartbit Bridge" } on-error={ /log warning "dartbit user exists" }
+# 5. PPPoE Server Configuration
+/ppp profile add name=dartbit-pppoe-default local-address=10.10.10.1 remote-address=dartbit-pool-pppoe dns-server=8.8.8.8 use-encryption=yes
+/interface pppoe-server server add disabled=no interface=ether2 service-name=dartbit-pppoe default-profile=dartbit-pppoe-default one-session-per-host=yes
 
-/log info "--- [DARTBIT] Provisioning Completed Successfully ---"
+# 6. Hotspot Configuration
+/ip hotspot profile add name=hsprof-dartbit hotspot-address=10.11.10.1 dns-name=connect.dartbit login-by=http-chap,cookie
+/ip hotspot add name=dartbit-hotspot interface=ether3 profile=hsprof-dartbit address-pool=dartbit-pool-hotspot disabled=no
+/ip hotspot user profile add name=dartbit-hotspot-default shared-users=1 status-autorefresh=1m
+
+/log info "--- [DARTBIT] PROVISIONING COMPLETE: NODE IS ONLINE ---"
 #-------------------------------------------------------------------------------
   `;
   
   res.send(rsc);
 });
 
-// SPA & Transpilation Logic
 app.use(async (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
   const filePath = path.join(__dirname, req.path.endsWith('/') ? req.path + 'index.html' : req.path);

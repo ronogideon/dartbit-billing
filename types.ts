@@ -31,6 +31,8 @@ export interface BillingPlan {
 export interface Client {
   id: string;
   username: string;
+  // Added password property to match its usage in ClientList.tsx and server.js
+  password?: string;
   fullName: string;
   email: string;
   phone: string;
