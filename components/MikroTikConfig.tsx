@@ -7,19 +7,15 @@ import {
   X, 
   Trash2, 
   Loader2, 
-  CheckCircle2, 
   Globe, 
-  WifiOff, 
   MoreHorizontal, 
-  Layout, 
-  RefreshCw,
-  Cpu,
   Database,
-  Terminal,
   ShieldCheck,
   Lock,
   User,
-  Hash
+  Hash,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 import { mikrotikService } from '../services/mikrotikService.ts';
 import { RouterStatus, RouterNode } from '../types.ts';
@@ -33,17 +29,13 @@ const MikroTikConfig: React.FC = () => {
   
   const [newRouter, setNewRouter] = useState({
     name: '',
-    username: 'admin',
-    password: '',
+    username: 'dartbit',
+    password: 'dartbit123',
     port: '8728'
   });
 
-  const [serverIp, setServerIp] = useState(window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  const cleanServerIp = serverIp.replace(/^https?:\/\//, '').split('/')[0].trim() || '127.0.0.1';
-  const pollIntervalRef = useRef<any>(null);
 
   const loadRouters = async () => {
     if (routers.length === 0) setLoading(true);
@@ -59,7 +51,7 @@ const MikroTikConfig: React.FC = () => {
 
   useEffect(() => {
     loadRouters();
-    const interval = setInterval(loadRouters, 10000); // Live hardware status sync
+    const interval = setInterval(loadRouters, 10000);
     const handleClick = () => setActiveMenuId(null);
     window.addEventListener('click', handleClick);
     return () => {
@@ -74,15 +66,16 @@ const MikroTikConfig: React.FC = () => {
     setIsProvisioning(true);
   };
 
+  const pollIntervalRef = useRef<any>(null);
   useEffect(() => {
     if (isProvisioning && discoveryStatus === 'waiting') {
       pollIntervalRef.current = setInterval(async () => {
         const found = await mikrotikService.discoverRouters();
         if (found && Array.isArray(found) && found.length > 0) {
-            const first = found[found.length - 1]; // Get latest
+            const first = found[found.length - 1];
             setDiscoveredInfo(first);
             setDiscoveryStatus('naming');
-            setNewRouter(prev => ({ ...prev, name: first.name }));
+            setNewRouter(prev => ({ ...prev, name: 'Node-' + first.host.split('.').pop() }));
             clearInterval(pollIntervalRef.current);
         }
       }, 3000);
@@ -110,13 +103,12 @@ const MikroTikConfig: React.FC = () => {
     setActionLoading('provision');
     try {
       const current = await mikrotikService.getRouters();
-      const updated = [newNode, ...current];
-      await mikrotikService.saveRouters(updated);
+      await mikrotikService.saveRouters([newNode, ...current]);
       await loadRouters();
       setIsProvisioning(false);
       setDiscoveryStatus('idle');
     } catch (err) {
-      alert("Provisioning failed.");
+      alert("Failed to connect to node API.");
     } finally {
       setActionLoading(null);
     }
@@ -124,19 +116,35 @@ const MikroTikConfig: React.FC = () => {
 
   const handleDeleteRouter = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm("Permanently delete this node?")) return;
+    if (!confirm("Delete this node?")) return;
     setActionLoading(id);
     try {
       await mikrotikService.deleteRouter(id);
       await loadRouters();
-    } catch (err) {
-      alert("Delete failed.");
-    } finally {
-      setActionLoading(null);
-    }
+    } catch (err) {} finally { setActionLoading(null); }
   };
 
-  const loaderCommand = `/tool fetch url="http://${cleanServerIp}:5000/boot?ip=${cleanServerIp}" dst-path=dartbit.rsc; :delay 3s; /import dartbit.rsc`;
+  /**
+   * FIX FOR 301 REDIRECT ERROR:
+   * MikroTik's /tool fetch doesn't follow HTTP redirects (301/302).
+   * Most cloud providers (Railway, Vercel, etc.) force HTTPS. 
+   * If the fetch starts on http://, it gets a 301 to https:// and fails.
+   */
+  const protocol = window.location.protocol; // Includes ':' e.g. 'https:'
+  const hostname = window.location.hostname;
+  
+  // Logic to determine base URL without forcing port 5000 in production
+  let baseUrl = '';
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    // Development environment
+    baseUrl = `http://${hostname}:5000`;
+  } else {
+    // Production cloud environment
+    // Use the current protocol (likely https) to avoid 301 redirects
+    baseUrl = `${protocol}//${hostname}`;
+  }
+  
+  const loaderCommand = `/tool fetch url="${baseUrl}/boot?ip=auto" dst-path=dartbit.rsc check-certificate=no; :delay 2s; /import dartbit.rsc`;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -146,86 +154,92 @@ const MikroTikConfig: React.FC = () => {
               <Network className="text-blue-600" size={24} />
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Access Nodes</h1>
            </div>
-           <p className="text-slate-500 text-sm mt-1">Live resource monitoring for your MikroTik fleet.</p>
+           <p className="text-slate-500 text-sm mt-1">Live hardware and resource status across your network.</p>
         </div>
         <button 
           onClick={handleStartProvisioning} 
           className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 active:scale-95 transition-all"
         >
-          <Plus size={18} /> Provision New Node
+          <Plus size={18} /> Add New Router
         </button>
       </header>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
         {loading && routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center gap-6">
             <Loader2 className="animate-spin text-blue-600" size={48} />
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">Syncing Hardware Inventory...</p>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">Scanning Network Hardware...</p>
           </div>
         ) : routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center text-center px-10">
-            <Network size={48} className="text-slate-100 mb-4" />
-            <h3 className="text-lg font-bold text-slate-900">No Nodes Provisioned</h3>
-            <p className="text-slate-400 text-sm">Provision a router to start real-time monitoring.</p>
+            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+              <Network size={40} className="text-slate-200" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">No Active Nodes</h3>
+            <p className="text-slate-400 text-sm max-w-sm mx-auto">Start by provisioning your first MikroTik router to monitor CPU, RAM, and active sessions.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-100">
+                <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Board Name</th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">CPU Load</th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">RAM Available</th>
+                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center">Resources</th>
+                  <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center">Sessions</th>
                   <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {routers.map((router) => (
-                  <tr key={router.id} className="hover:bg-blue-50/20 transition-colors">
-                    <td className="px-8 py-5">
+                  <tr key={router.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-8 py-6">
                       <div className="flex items-center gap-4">
-                        <div className={`p-2 rounded-lg ${router.status === RouterStatus.ONLINE ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
-                          <Network size={18} />
+                        <div className={`p-3 rounded-2xl ${router.status === RouterStatus.ONLINE ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                          <Network size={20} />
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-slate-900">{router.name}</span>
-                          <span className="text-[10px] font-mono text-slate-400 uppercase">{router.host}</span>
+                        <div>
+                          <span className="text-sm font-bold text-slate-900 block">{router.name}</span>
+                          <span className="text-[10px] font-mono text-slate-400">{router.host}</span>
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                           <div className={`h-full transition-all ${router.cpu > 70 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${router.cpu}%` }}></div>
+                    <td className="px-8 py-6">
+                      <div className="flex flex-col gap-2 max-w-[120px] mx-auto">
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
+                          <span>CPU</span>
+                          <span className={router.cpu > 80 ? 'text-red-500' : 'text-slate-900'}>{router.cpu}%</span>
                         </div>
-                        <span className="text-xs font-bold text-slate-600">{router.cpu}%</span>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                           <div className={`h-full transition-all ${router.cpu > 80 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${router.cpu}%` }}></div>
+                        </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5">
-                      <div className="flex items-center gap-2">
-                        <Database size={14} className="text-slate-400" />
-                        <span className="text-xs font-bold text-slate-600">{router.memory} / {router.totalMemory || '??'} MB</span>
+                    <td className="px-8 py-6 text-center">
+                      <div className="flex flex-col items-center">
+                         <span className="text-sm font-black text-slate-900">{router.sessions}</span>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase">Live Clients</span>
                       </div>
                     </td>
-                    <td className="px-8 py-5">
+                    <td className="px-8 py-6">
                       <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-                        router.status === RouterStatus.ONLINE ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        router.status === RouterStatus.ONLINE ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
                       }`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${router.status === RouterStatus.ONLINE ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                         {router.status}
                       </span>
                     </td>
-                    <td className="px-8 py-5 text-right relative">
+                    <td className="px-8 py-6 text-right relative">
                       <button 
                         onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === router.id ? null : router.id); }}
-                        className="p-2 text-slate-400 hover:text-blue-600 transition-all"
+                        className="p-2 text-slate-400 hover:text-blue-600 transition-all rounded-lg hover:bg-white"
                       >
                         <MoreHorizontal size={20} />
                       </button>
                       {activeMenuId === router.id && (
-                        <div className="absolute right-8 top-12 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 py-1">
-                          <button onClick={(e) => handleDeleteRouter(e, router.id)} className="w-full flex items-center gap-3 px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50">
-                            <Trash2 size={14} /> Delete Node
+                        <div className="absolute right-8 top-14 w-48 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-1 animate-in zoom-in-95">
+                          <button onClick={(e) => handleDeleteRouter(e, router.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-red-500 hover:bg-red-50">
+                            <Trash2 size={16} /> Remove Node
                           </button>
                         </div>
                       )}
@@ -239,73 +253,109 @@ const MikroTikConfig: React.FC = () => {
       </div>
 
       {isProvisioning && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-2xl w-full border border-slate-100 overflow-hidden">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-2xl w-full border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <h2 className="text-xl font-bold text-slate-900">Node Onboarding</h2>
-                <button onClick={() => setIsProvisioning(false)} className="p-2 text-slate-400 hover:text-slate-900"><X size={28} /></button>
+                <div className="flex items-center gap-3 text-slate-900">
+                  <div className="p-2 bg-blue-600 text-white rounded-lg">
+                    <Zap size={20} />
+                  </div>
+                  <h2 className="text-xl font-bold tracking-tight">Onboarding Wizard</h2>
+                </div>
+                <button onClick={() => setIsProvisioning(false)} className="p-2 text-slate-400 hover:text-slate-900 transition-colors"><X size={28} /></button>
             </div>
             
-            <div className="p-8 space-y-6">
+            <div className="p-8 space-y-8 overflow-y-auto">
               {discoveryStatus === 'waiting' ? (
-                  <div className="space-y-6">
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1 flex items-center gap-2">
-                          <Globe size={12} /> Dashboard Bridge Host
-                        </label>
-                        <input className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-lg text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={serverIp} onChange={(e) => setServerIp(e.target.value)} />
+                  <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+                      <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl flex gap-4">
+                        <AlertTriangle className="text-amber-600 shrink-0" size={24} />
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-amber-900">Connection Requirement</h4>
+                          <p className="text-xs text-amber-700 leading-relaxed">
+                            Run the command below in your MikroTik Terminal. 
+                            <strong>Note:</strong> We are using an absolute URL to prevent 301 redirect errors on cloud platforms.
+                          </p>
+                        </div>
                       </div>
-                      <div className="bg-slate-900 rounded-2xl p-6 font-mono text-[11px] text-blue-300 break-all relative border border-slate-800 leading-relaxed shadow-inner">
-                          {loaderCommand}
-                          <button onClick={() => { navigator.clipboard.writeText(loaderCommand); alert("Copied!"); }} className="absolute right-4 top-4 p-2 bg-white/10 rounded-lg"><Copy size={16} /></button>
+
+                      <div className="space-y-4">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Provisioning Command</label>
+                        <div className="bg-slate-900 rounded-2xl p-6 font-mono text-xs text-blue-300 break-all relative group shadow-inner border border-slate-800 leading-relaxed">
+                            {loaderCommand}
+                            <button 
+                              onClick={() => { navigator.clipboard.writeText(loaderCommand); }} 
+                              className="absolute right-4 top-4 p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all active:scale-90"
+                            >
+                              <Copy size={18} />
+                            </button>
+                        </div>
                       </div>
-                      <div className="flex flex-col items-center gap-3 py-4">
-                        <Loader2 className="animate-spin text-blue-600" size={24}/>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Awaiting Peer Signal...</span>
+
+                      <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed border-slate-100 rounded-3xl">
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-25"></div>
+                          <div className="relative bg-blue-600 p-3 rounded-full text-white">
+                            <RefreshCw size={24} className="animate-spin" />
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-sm font-black text-slate-900 uppercase tracking-widest">Awaiting Router Pulse</p>
+                          <p className="text-xs text-slate-400 mt-1">Listening for incoming signal from your hardware...</p>
+                        </div>
                       </div>
                   </div>
               ) : (
-                  <div className="space-y-6 animate-in zoom-in-95">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-8 animate-in zoom-in-95">
+                      <div className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex gap-4">
+                        <ShieldCheck className="text-blue-600 shrink-0" size={24} />
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-blue-900">Signal Received!</h4>
+                          <p className="text-xs text-blue-700">Router detected at <strong>{discoveredInfo.host}</strong>. Name your node to finish.</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase">Friendly Name</label>
                           <div className="relative">
-                            <Network className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                            <input className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" value={newRouter.name} onChange={(e) => setNewRouter({...newRouter, name: e.target.value})} />
+                            <Network className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                            <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.name} onChange={(e) => setNewRouter({...newRouter, name: e.target.value})} />
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">API Port (Default 8728)</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase">API Port</label>
                           <div className="relative">
-                            <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                            <input className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" value={newRouter.port} onChange={(e) => setNewRouter({...newRouter, port: e.target.value})} />
+                            <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                            <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.port} onChange={(e) => setNewRouter({...newRouter, port: e.target.value})} />
                           </div>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">API Username</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase">API User</label>
                           <div className="relative">
-                            <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                            <input className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" value={newRouter.username} onChange={(e) => setNewRouter({...newRouter, username: e.target.value})} />
+                            <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                            <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.username} onChange={(e) => setNewRouter({...newRouter, username: e.target.value})} />
                           </div>
                         </div>
                         <div className="space-y-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase">API Password</label>
                           <div className="relative">
-                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                            <input type="password" className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" value={newRouter.password} onChange={(e) => setNewRouter({...newRouter, password: e.target.value})} />
+                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                            <input type="password" className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold focus:border-blue-600 outline-none transition-all" value={newRouter.password} onChange={(e) => setNewRouter({...newRouter, password: e.target.value})} />
                           </div>
                         </div>
                       </div>
 
                       <button 
                         onClick={handleFinalizeNaming} 
-                        className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold flex items-center justify-center gap-3 shadow-xl"
+                        disabled={!!actionLoading}
+                        className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-lg flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all"
                       >
                         {actionLoading ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-                        Finalize & Connect
+                        Complete Activation
                       </button>
                   </div>
               )}
