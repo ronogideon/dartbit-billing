@@ -18,9 +18,7 @@ const DB = {
   routers: path.join(DATA_DIR, 'routers.json'),
   clients: path.join(DATA_DIR, 'clients.json'),
   plans: path.join(DATA_DIR, 'plans.json'),
-  payments: path.join(DATA_DIR, 'payments.json'),
-  discovery: path.join(DATA_DIR, 'discovered.json'),
-  usage_logs: path.join(DATA_DIR, 'usage_logs.json')
+  discovery: path.join(DATA_DIR, 'discovered.json')
 };
 
 const readJson = (file) => {
@@ -34,13 +32,14 @@ const writeJson = (file, data) => {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 };
 
+// Monitoring Logic: Throughput cache for speed calculations
 const throughputCache = {};
 
 async function getRouterConn(router) {
   return new RouterOSAPI({
     host: router.host,
-    user: router.username || 'admin',
-    password: router.password || '',
+    user: router.username || 'dartbit',
+    password: router.password || 'dartbit123',
     port: parseInt(router.port) || 8728,
     timeout: 5
   });
@@ -48,7 +47,6 @@ async function getRouterConn(router) {
 
 /**
  * MONITORING LOGIC: Hardware & Status Retrieval
- * Fetches real-time hardware specs and performance metrics.
  */
 async function getRouterStats(router) {
   const api = await getRouterConn(router);
@@ -79,7 +77,6 @@ async function getRouterStats(router) {
 
 /**
  * CONTROL LOGIC: Remote Management Actions
- * Handle reboot and delete operations.
  */
 app.post('/api/routers/:id/reboot', async (req, res) => {
   const routers = readJson(DB.routers);
@@ -90,11 +87,10 @@ app.post('/api/routers/:id/reboot', async (req, res) => {
   try {
     await api.connect();
     await api.write('/system/reboot');
-    // Connection will drop, that's expected
     res.json({ success: true });
   } catch (e) {
-    // If command sent successfully before close, it counts as success
-    res.json({ success: true, message: 'Reboot command initiated' });
+    // Connection drops on reboot, which is a success signal
+    res.json({ success: true });
   }
 });
 
@@ -117,8 +113,7 @@ app.delete('/api/routers/:id', (req, res) => {
 });
 
 /**
- * MONITORING LOGIC: Live Traffic Metrics
- * Calculates per-session throughput and uptime.
+ * MONITORING LOGIC: Live Client Traffic
  */
 app.get('/api/mikrotik/active-sessions', async (req, res) => {
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
@@ -151,7 +146,6 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
         sessions.push({
           id: s['.id'],
           username: username,
-          connectionType: s.service === 'pppoe' ? 'PPPoE' : 'Hotspot',
           uptime: s.uptime,
           downloadRate: dRate,
           uploadRate: uRate,
@@ -165,108 +159,36 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
 });
 
 /**
- * PROVISIONING LOGIC: Handshake & Script Deployment
- * Detects new nodes and serves auto-configuration scripts.
+ * PROVISIONING LOGIC: Zero Touch Handshake
  */
 app.get('/boot', (req, res) => {
-  const forwarded = req.headers['x-forwarded-for'];
-  const ip = req.query.ip || (forwarded ? forwarded.split(',')[0] : req.ip);
+  const ip = req.query.ip === 'auto' ? req.ip : (req.query.ip || req.ip);
   const discovered = readJson(DB.discovery);
   
-  // Record the handshake IP immediately
   if (!discovered.find(d => d.host === ip)) {
-    discovered.push({ 
-      id: `d-${Date.now()}`, 
-      host: ip, 
-      seen: new Date().toISOString() 
-    });
+    discovered.push({ id: `d-${Date.now()}`, host: ip, seen: new Date().toISOString() });
     writeJson(DB.discovery, discovered);
   }
 
   res.set('Content-Type', 'text/plain');
-  const rsc = `
-/log info "--- [DARTBIT] STARTING MISSION CRITICAL PROVISIONING ---"
-/log info "Downloading configuration..."
-/log info "status: finished"
-/log info "downloaded: 6KiB"
-/log info "duration: 1s"
-/log info "Applying configuration..."
-/log info "------------------Downloading WireGuard configuration file------------------"
-/log info "status: finished"
-/log info "downloaded: 2KiB"
-/log info "duration: 1s"
-/log info "------------------Applying WireGuard configuration------------------"
-/log info "Script file loaded and executed successfully"
-/log info "------------------SNMP community added successfully------------------"
-:do { /snmp community add name=dartbit-snmp addresses=0.0.0.0/0 read-access=yes } on-error={}
-/log info "------------------RADIUS server added successfully------------------"
-:do { /radius add address=127.0.0.1 secret=dartbit-radius service=ppp,hotspot } on-error={}
-/log info "------------------Centipid user added successfully------------------"
-:do { /user add name=dartbit group=full password=dartbit123 comment="dartbit Automation Bridge" } on-error={ /user set [find name=dartbit] group=full password=dartbit123 }
-/log info "------------------Removed existing masquerade rules------------------"
-/ip firewall nat remove [find action=masquerade chain=srcnat]
-/log info "------------------Added masquerade rule for entire network------------------"
-/ip firewall nat add action=masquerade chain=srcnat comment="dartbit WAN NAT" out-interface=ether1
-/log info "------------------Downloading hotspot files------------------"
-:for i from=1 to=4 do={ /log info "status: finished"; /log info "downloaded: 6KiB"; /log info "duration: 1s" }
-/log info "------------------Downloaded hotspot files successfully------------------"
-/log info "------------------Walled garden rules added successfully------------------"
-/log info "------------------Services configured successfully------------------"
-/log info "------------------Timezone configured successfully------------------"
-/log info "------------------Configuration completed successfully ---"
-
-# Network Stack Initialization
-:do { 
-    /interface bridge add name=dartbit-service-bridge comment="dartbit Client Access Bridge" arp=reply-only 
-} on-error={ 
-    /interface bridge set [find name=dartbit-service-bridge] arp=reply-only 
-}
-
-:foreach i in=[/interface ethernet find where !(name~"ether1")] do={
-  :local ifName [/interface ethernet get $i name]
-  :do { /interface bridge port add bridge=dartbit-service-bridge interface=$ifName } on-error={}
-}
-
-/ip pool add name=dartbit-pool-pppoe ranges=10.10.10.2-10.10.254.254
-/ip dns set allow-remote-requests=yes servers=8.8.8.8
-/ppp profile add name=dartbit-pppoe-default local-address=10.10.10.1 remote-address=dartbit-pool-pppoe dns-server=8.8.8.8 use-encryption=yes
-/interface pppoe-server server add disabled=no interface=dartbit-service-bridge service-name=dartbit-pppoe default-profile=dartbit-pppoe-default one-session-per-host=yes
-
-/ip firewall filter add chain=input comment="dartbit: Allow API access" dst-port=8728 protocol=tcp
-/ip firewall filter add chain=forward action=drop comment="dartbit: Drop all unauthenticated traffic" in-interface=dartbit-service-bridge
-
+  res.send(`
+/log info "--- [DARTBIT] ZTP INITIATED ---"
+:delay 1s
+/user add name=dartbit group=full password=dartbit123 comment="dartbit Automation"
 /ip service enable api
 /ip service set api port=8728
-/log info "--- [DARTBIT] PROVISIONING COMPLETE & SECURED ---"
-  `;
-  res.send(rsc);
+/interface bridge add name=dartbit-bridge arp=reply-only
+:foreach i in=[/interface ethernet find where !(name~"ether1")] do={
+  /interface bridge port add bridge=dartbit-bridge interface=[/interface ethernet get $i name]
+}
+/log info "--- [DARTBIT] ZTP COMPLETE ---"
+  `);
 });
 
-// Standard API Endpoints
-app.get('/api/clients', (req, res) => res.json(readJson(DB.clients)));
-app.post('/api/clients', async (req, res) => {
-  const clients = readJson(DB.clients);
-  const client = req.body;
-  const idx = clients.findIndex(c => c.id === client.id);
-  if (idx > -1) clients[idx] = client; else clients.unshift(client);
-  writeJson(DB.clients, clients);
-  res.json({ success: true });
-});
-app.get('/api/plans', (req, res) => res.json(readJson(DB.plans)));
-app.post('/api/plans', (req, res) => {
-  const plans = readJson(DB.plans);
-  const plan = req.body;
-  const idx = plans.findIndex(p => p.id === plan.id);
-  if (idx > -1) plans[idx] = plan; else plans.unshift(plan);
-  writeJson(DB.plans, plans);
-  res.json({ success: true });
-});
 app.get('/api/discovered', (req, res) => res.json(readJson(DB.discovery)));
-app.post('/api/discovery/clear', (req, res) => {
-  writeJson(DB.discovery, []);
-  res.json({ success: true });
-});
+app.post('/api/discovery/clear', (req, res) => { writeJson(DB.discovery, []); res.json({ success: true }); });
 
+// Static & Build Handlers
 app.use(async (req, res, next) => {
   if (req.path.startsWith('/api') || req.path === '/boot') return next();
   const filePath = path.join(__dirname, req.path.endsWith('/') ? req.path + 'index.html' : req.path);
@@ -286,4 +208,4 @@ app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit Core Online [Port: ${PORT}]`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit ISP Engine on Port ${PORT}`));
