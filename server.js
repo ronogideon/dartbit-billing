@@ -242,6 +242,12 @@ app.post('/api/plans', async (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/discovered', (req, res) => res.json(readJson(DB.discovery)));
+app.post('/api/discovery/clear', (req, res) => {
+  writeJson(DB.discovery, []);
+  res.json({ success: true });
+});
+
 app.get('/boot', (req, res) => {
   const ip = req.query.ip || req.ip;
   const discovered = readJson(DB.discovery);

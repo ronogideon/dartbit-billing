@@ -228,7 +228,7 @@ const ClientList: React.FC<ClientListProps> = ({
              <Users size={28} className="text-blue-600" />
              <h1 className="text-3xl font-bold tracking-tight text-slate-900">{title}</h1>
           </div>
-          <p className="text-slate-600 text-sm font-medium mt-1">
+          <p className="text-slate-700 text-sm font-medium mt-1">
              Managing {clients.length} accounts in the dartbit directory.
           </p>
         </div>
@@ -246,24 +246,24 @@ const ClientList: React.FC<ClientListProps> = ({
       <div className="flex items-center gap-4 p-1.5 bg-white border border-slate-200 rounded-3xl w-fit shadow-sm">
         <button 
           onClick={() => setCategoryFilter('ALL')} 
-          className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-xs font-bold transition-all ${categoryFilter === 'ALL' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-600 hover:bg-slate-50'}`}
+          className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-xs font-bold transition-all ${categoryFilter === 'ALL' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-700 hover:bg-slate-50'}`}
         >
           <Monitor size={16} /> All Accounts
-          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ml-1 ${categoryFilter === 'ALL' ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>{clients.length}</span>
+          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ml-1 ${categoryFilter === 'ALL' ? 'bg-white/20' : 'bg-slate-100 text-slate-700'}`}>{clients.length}</span>
         </button>
         <button 
           onClick={() => setCategoryFilter(ConnectionType.PPPOE)} 
-          className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-xs font-bold transition-all ${categoryFilter === ConnectionType.PPPOE ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-600 hover:bg-slate-50'}`}
+          className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-xs font-bold transition-all ${categoryFilter === ConnectionType.PPPOE ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-700 hover:bg-slate-50'}`}
         >
           <Radio size={16} /> PPPoE
-          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ml-1 ${categoryFilter === ConnectionType.PPPOE ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>{clients.filter(c => c.connectionType === ConnectionType.PPPOE).length}</span>
+          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ml-1 ${categoryFilter === ConnectionType.PPPOE ? 'bg-white/20' : 'bg-slate-100 text-slate-700'}`}>{clients.filter(c => c.connectionType === ConnectionType.PPPOE).length}</span>
         </button>
         <button 
           onClick={() => setCategoryFilter(ConnectionType.HOTSPOT)} 
-          className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-xs font-bold transition-all ${categoryFilter === ConnectionType.HOTSPOT ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-600 hover:bg-slate-50'}`}
+          className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-xs font-bold transition-all ${categoryFilter === ConnectionType.HOTSPOT ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-700 hover:bg-slate-50'}`}
         >
           <Wifi size={16} /> Hotspot
-          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ml-1 ${categoryFilter === ConnectionType.HOTSPOT ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>{clients.filter(c => c.connectionType === ConnectionType.HOTSPOT).length}</span>
+          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ml-1 ${categoryFilter === ConnectionType.HOTSPOT ? 'bg-white/20' : 'bg-slate-100 text-slate-700'}`}>{clients.filter(c => c.connectionType === ConnectionType.HOTSPOT).length}</span>
         </button>
       </div>
 
@@ -271,7 +271,7 @@ const ClientList: React.FC<ClientListProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50/50 border-b border-slate-100">
-              <tr className="text-[11px] font-black text-slate-600 uppercase tracking-[0.15em]">
+              <tr className="text-[11px] font-black text-slate-700 uppercase tracking-[0.15em]">
                 <th className="px-10 py-6">Subscriber</th>
                 <th className="px-10 py-6">Plan</th>
                 <th className="px-10 py-6">Billing Status</th>
@@ -290,12 +290,12 @@ const ClientList: React.FC<ClientListProps> = ({
                       </div>
                       <div>
                         <div className="text-base font-bold text-slate-900">{client.fullName}</div>
-                        <div className="text-[11px] text-slate-500 font-black uppercase tracking-widest">{client.username}</div>
+                        <div className="text-[11px] text-slate-600 font-black uppercase tracking-widest">{client.username}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-10 py-7">
-                    <div className="flex items-center gap-3 text-slate-700">
+                    <div className="flex items-center gap-3 text-slate-800">
                       <div className="text-blue-600"><Package size={20} /></div>
                       <span className="text-sm font-bold">
                         {plans.find(p => p.id === client.planId)?.name || 'Standard Plan'}
@@ -309,12 +309,12 @@ const ClientList: React.FC<ClientListProps> = ({
                   </td>
                   <td className="px-10 py-7">
                     {client.isOnline ? (
-                      <span className="inline-flex items-center gap-2 text-xs font-bold text-green-600">
+                      <span className="inline-flex items-center gap-2 text-xs font-bold text-green-700">
                         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                         CONNECTED
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-400">
+                      <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-500">
                         <WifiOff size={16} /> OFFLINE
                       </span>
                     )}
@@ -332,7 +332,7 @@ const ClientList: React.FC<ClientListProps> = ({
                   <td className="px-10 py-7 text-right relative">
                      <button 
                        onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === client.id ? null : client.id); }}
-                       className="p-2 text-slate-400 group-hover:text-slate-900 transition-colors"
+                       className="p-2 text-slate-500 group-hover:text-slate-900 transition-colors"
                      >
                         <MoreVertical size={20} />
                      </button>
@@ -340,7 +340,7 @@ const ClientList: React.FC<ClientListProps> = ({
                        <div className="absolute right-12 top-1/2 -translate-y-1/2 z-[200] bg-white border border-slate-200 rounded-xl shadow-2xl py-1 w-44 animate-in zoom-in-95 overflow-hidden">
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleOpenModal(client); }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-50 transition-colors"
                           >
                             <Edit2 size={14} className="text-blue-600" /> Modify
                           </button>
@@ -410,14 +410,14 @@ const ClientList: React.FC<ClientListProps> = ({
             <form onSubmit={handleFormSubmit} className="p-10 space-y-8 overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="col-span-full">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 block">Connection Topology</label>
+                  <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest mb-3 block">Connection Topology</label>
                   <div className="flex gap-4">
                     {[ConnectionType.PPPOE, ConnectionType.HOTSPOT].map(type => (
                       <button 
                         key={type} type="button" 
                         onClick={() => setFormData({...formData, connectionType: type})}
                         className={`flex-1 flex items-center justify-center gap-3 py-4 rounded-2xl border-2 font-bold text-sm transition-all ${
-                          formData.connectionType === type ? 'border-blue-600 bg-blue-50 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'
+                          formData.connectionType === type ? 'border-blue-600 bg-blue-50 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-700 hover:border-slate-200'
                         }`}
                       >
                         {type === ConnectionType.PPPOE ? <Monitor size={18} /> : <Wifi size={18} />}
@@ -428,23 +428,23 @@ const ClientList: React.FC<ClientListProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block">First Name</label>
+                  <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block">First Name</label>
                   <input required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-1 focus:ring-blue-600 outline-none" value={formData.firstName} onChange={(e) => setFormData({...formData, firstName: e.target.value})} placeholder="e.g. Daniel" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block">Last Name</label>
+                  <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block">Last Name</label>
                   <input required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-1 focus:ring-blue-600 outline-none" value={formData.lastName} onChange={(e) => setFormData({...formData, lastName: e.target.value})} placeholder="e.g. Kimani" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block">Network Username</label>
+                  <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block">Network Username</label>
                   <input required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-1 focus:ring-blue-600 outline-none" value={formData.username} onChange={(e) => setFormData({...formData, username: e.target.value})} placeholder="e.g. DKimani" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block">Password</label>
+                  <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block">Password</label>
                   <input required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-1 focus:ring-blue-600 outline-none" value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest block">Service Plan</label>
+                  <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block">Service Plan</label>
                   <select className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-1 focus:ring-blue-600 outline-none" value={formData.planId} onChange={(e) => setFormData({...formData, planId: e.target.value})}>
                     {plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.speedLimit})</option>)}
                   </select>
