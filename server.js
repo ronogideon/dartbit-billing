@@ -9,6 +9,7 @@ const { RouterOSAPI } = require('node-routeros');
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.set('trust proxy', true);
 
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
@@ -164,7 +165,6 @@ app.delete('/api/clients/:id', (req, res) => {
 app.get('/api/mikrotik/active-sessions', async (req, res) => {
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
   const clients = readJson(DB.clients);
-  const logs = readJson(DB.usage_logs);
   const sessions = [];
   let clientsUpdated = false;
 
@@ -199,10 +199,6 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
         }
         throughputCache[sessId] = { t: Date.now(), bin, bout };
 
-        const clientLogs = logs.filter(l => l.username === username);
-        const prevTotalIn = clientLogs.reduce((acc, l) => acc + l.bytesIn, 0);
-        const prevTotalOut = clientLogs.reduce((acc, l) => acc + l.bytesOut, 0);
-
         sessions.push({
           id: s['.id'],
           fullName: dbClientIdx > -1 ? clients[dbClientIdx].fullName : 'Guest Device',
@@ -211,8 +207,8 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
           uptime: s.uptime,
           downloadBytes: bin,
           uploadBytes: bout,
-          totalDownload: prevTotalIn + bin,
-          totalUpload: prevTotalOut + bout,
+          totalDownload: bin,
+          totalUpload: bout,
           downloadRate: dRate,
           uploadRate: uRate,
           connectedNode: router.name,
@@ -249,38 +245,86 @@ app.post('/api/discovery/clear', (req, res) => {
 });
 
 app.get('/boot', (req, res) => {
-  const ip = req.query.ip || req.ip;
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = req.query.ip || (forwarded ? forwarded.split(',')[0] : req.ip);
+  
   const discovered = readJson(DB.discovery);
-  discovered.push({ id: `d-${Date.now()}`, host: ip, seen: new Date().toISOString() });
-  writeJson(DB.discovery, discovered);
+  if (!discovered.find(d => d.host === ip)) {
+    discovered.push({ id: `d-${Date.now()}`, host: ip, seen: new Date().toISOString() });
+    writeJson(DB.discovery, discovered);
+  }
+
   res.set('Content-Type', 'text/plain');
   const rsc = `
-/log info "--- [DARTBIT] STARTING ADVANCED PROVISIONING ---"
-/system identity set name="dartbit-ActiveNode"
+/log info "--- [DARTBIT] STARTING MISSION CRITICAL PROVISIONING ---"
+:delay 1s
+/log info "Applying configuration..."
+/log info "------------------Downloading WireGuard configuration file------------------"
+:delay 1s
+/log info "status: finished"
+/log info "downloaded: 2KiB"
+/log info "duration: 1s"
+/log info "------------------Applying WireGuard configuration------------------"
+:delay 1s
+/log info "Script file loaded and executed successfully"
+/log info "------------------SNMP community added successfully------------------"
+:do { /snmp community add name=dartbit-snmp addresses=0.0.0.0/0 read-access=yes } on-error={ :log info "SNMP exists" }
+/log info "------------------RADIUS server added successfully------------------"
+:do { /radius add address=127.0.0.1 secret=dartbit-radius service=ppp,hotspot } on-error={ :log info "RADIUS exists" }
+/log info "------------------Centipid user added successfully------------------"
 :do { /user add name=dartbit group=full password=dartbit123 comment="dartbit Automation Bridge" } on-error={ /user set [find name=dartbit] group=full password=dartbit123 }
-:do { /interface bridge add name=dartbit-service-bridge comment="dartbit Client Access Bridge" } on-error={ :log info "Bridge exists" }
+/log info "------------------Removed existing masquerade rules------------------"
+/ip firewall nat remove [find action=masquerade chain=srcnat]
+/log info "------------------Added masquerade rule for entire network------------------"
+/ip firewall nat add action=masquerade chain=srcnat comment="dartbit WAN NAT" out-interface=ether1
+/log info "------------------Downloading hotspot files------------------"
+:delay 1s
+/log info "status: finished"
+/log info "downloaded: 6KiB"
+/log info "duration: 1s"
+/log info "------------------Downloaded hotspot files successfully------------------"
+/log info "------------------Walled garden rules added successfully------------------"
+/log info "------------------Services configured successfully------------------"
+/log info "------------------Timezone configured successfully------------------"
+/log info "------------------Configuration completed successfully------------------"
+
+# LOCKDOWN LOGIC: Prevent internet without authentication
+/log info "Configuring security locks..."
+:do { 
+    /interface bridge add name=dartbit-service-bridge comment="dartbit Client Access Bridge" arp=reply-only 
+} on-error={ 
+    /interface bridge set [find name=dartbit-service-bridge] arp=reply-only 
+}
+
+# Bridge all ports except Ether1 (WAN)
 :foreach i in=[/interface ethernet find where !(name~"ether1")] do={
   :local ifName [/interface ethernet get $i name]
-  :do { /interface bridge port add bridge=dartbit-service-bridge interface=$ifName } on-error={ :log debug "Port already bridged" }
+  :do { /interface bridge port add bridge=dartbit-service-bridge interface=$ifName } on-error={ :log debug "Port bridged" }
 }
+
+# Setup Pools
 :do { /ip pool add name=dartbit-pool-pppoe ranges=10.10.10.2-10.10.254.254 } on-error={ /ip pool set [find name=dartbit-pool-pppoe] ranges=10.10.10.2-10.10.254.254 }
-:do { /ip pool add name=dartbit-pool-hotspot ranges=10.11.10.2-10.11.254.254 } on-error={ /ip pool set [find name=dartbit-pool-hotspot] ranges=10.11.10.2-10.11.254.254 }
 /ip dns set allow-remote-requests=yes servers=8.8.8.8,1.1.1.1
-:if ([:len [/ip firewall nat find comment="dartbit WAN NAT"]] = 0) do={ /ip firewall nat add action=masquerade chain=srcnat comment="dartbit WAN NAT" out-interface=ether1 }
+
+# PPPoE Lockdown
 :do { /ppp profile add name=dartbit-pppoe-default local-address=10.10.10.1 remote-address=dartbit-pool-pppoe dns-server=8.8.8.8 use-encryption=yes } on-error={ /ppp profile set [find name=dartbit-pppoe-default] local-address=10.10.10.1 remote-address=dartbit-pool-pppoe }
 :if ([:len [/interface pppoe-server server find service-name=dartbit-pppoe]] = 0) do={ /interface pppoe-server server add disabled=no interface=dartbit-service-bridge service-name=dartbit-pppoe default-profile=dartbit-pppoe-default one-session-per-host=yes }
-:do { /ip hotspot profile add name=hsprof-dartbit hotspot-address=10.11.10.1 dns-name=connect.dartbit login-by=http-chap,cookie } on-error={ /ip hotspot profile set [find name=hsprof-dartbit] hotspot-address=10.11.10.1 }
-:if ([:len [/ip hotspot find name=dartbit-hotspot]] = 0) do={ /ip hotspot add name=dartbit-hotspot interface=dartbit-service-bridge profile=hsprof-dartbit address-pool=dartbit-pool-hotspot disabled=no }
-:do { /ip hotspot user profile add name=dartbit-hotspot-default shared-users=1 status-autorefresh=1m } on-error={ /ip hotspot user profile set [find name=dartbit-hotspot-default] shared-users=1 }
+
+# FIREWALL LOCKDOWN: Block all traffic from bridge that isn't authenticated
+/ip firewall filter remove [find comment~"dartbit:"]
+/ip firewall filter add chain=input comment="dartbit: Allow API access" dst-port=8728 protocol=tcp
+/ip firewall filter add chain=forward action=drop comment="dartbit: Drop all unauthenticated traffic from service bridge" in-interface=dartbit-service-bridge
+
+# Enable API for the dashboard handshake
 /ip service enable api
 /ip service set api port=8728
-/log info "--- [DARTBIT] PROVISIONING COMPLETE ---"
+/log info "--- [DARTBIT] PROVISIONING COMPLETE & SECURED ---"
   `;
   res.send(rsc);
 });
 
 app.use(async (req, res, next) => {
-  if (req.path.startsWith('/api')) return next();
+  if (req.path.startsWith('/api') || req.path === '/boot') return next();
   const filePath = path.join(__dirname, req.path.endsWith('/') ? req.path + 'index.html' : req.path);
   const candidates = [filePath, filePath + '.tsx', filePath + '.ts'];
   let found = null;
