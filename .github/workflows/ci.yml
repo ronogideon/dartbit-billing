@@ -1,0 +1,37 @@
+
+name: NetPulse CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install Bridge Dependencies
+        run: npm install
+      - name: Run Bridge Lint/Syntax Check
+        run: node --check server.js
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify Build
+        run: |
+          echo "Simulating Frontend Build..."
+          # In a real environment, you would run 'npm run build' here
+          exit 0

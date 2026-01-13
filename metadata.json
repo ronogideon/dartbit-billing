@@ -1,0 +1,8 @@
+{
+  "name": "dartbit billing",
+  "description": "A high-performance ISP billing solution featuring MikroTik integration and unified GCP deployment.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
