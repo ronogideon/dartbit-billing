@@ -128,6 +128,14 @@ class MikroTikService {
     if (!response.ok) throw new Error('Delete failed on bridge');
   }
 
+  async rebootRouter(id: string): Promise<void> {
+    if (this.isSimulated) return;
+    const response = await fetch(`${this.currentBridgeUrl}/api/routers/${id}/reboot`, { 
+      method: 'POST' 
+    });
+    if (!response.ok) throw new Error('Reboot command failed');
+  }
+
   async getPayments(): Promise<Payment[]> {
     if (this.isSimulated) return [];
     try {
