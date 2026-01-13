@@ -1,0 +1,16 @@
+[
+  {
+    "id": "c1768307448092",
+    "username": "Edu",
+    "fullName": "edu edu",
+    "email": "",
+    "phone": "",
+    "connectionType": "PPPoE",
+    "planId": "1768307418192",
+    "status": "ACTIVE",
+    "balance": 0,
+    "expiryDate": "2026-02-12",
+    "bandwidthUsage": 0,
+    "address": ""
+  }
+]

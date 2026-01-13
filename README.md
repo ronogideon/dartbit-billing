@@ -1,7 +1,6 @@
+# dartbit: Local Implementation Guide
 
-# NetPulse: Local Implementation Guide
-
-To run NetPulse on your PC, follow these 3 simple steps.
+To run dartbit on your PC, follow these 3 simple steps.
 
 ## 🏃‍♂️ Quick Start (3 Minutes)
 
@@ -36,7 +35,7 @@ To see AI insights (Network Overview), you need to add your API Key. You can do 
 1. Go to the **MikroTik Nodes** tab in the sidebar.
 2. Click **Provision Node**.
 3. Copy the script provided and paste it into your MikroTik **Terminal**.
-4. Once configured, NetPulse will be able to add/remove users automatically from your actual hardware.
+4. Once configured, dartbit will be able to add/remove users automatically from your actual hardware.
 
 ---
 

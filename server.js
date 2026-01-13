@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -186,12 +185,12 @@ app.get('/boot', (req, res) => {
   // Comprehensive Provisioning Script
   const rsc = `
 #-------------------------------------------------------------------------------
-# NetPulse Unified Provisioning Script v2.5
+# dartbit Unified Provisioning Script v2.5
 #-------------------------------------------------------------------------------
-/log info "--- [NETPULSE] Starting One-Step Deployment ---"
+/log info "--- [DARTBIT] Starting One-Step Deployment ---"
 
 # 1. System Identity & Time
-/system identity set name="NetPulse-Node"
+/system identity set name="dartbit-Node"
 /system clock set time-zone-name=Africa/Nairobi
 /log info "Identity and Timezone set to Nairobi."
 
@@ -201,33 +200,33 @@ app.get('/boot', (req, res) => {
 /log info "Management API enabled on port 8728."
 
 # 3. Dedicated IP Pool for Subscribers
-/ip pool add name=netpulse-pool ranges=10.10.0.10-10.10.255.254
+/ip pool add name=dartbit-pool ranges=10.10.0.10-10.10.255.254
 /log info "Subcriber IP Pool created (10.10.0.0/16)."
 
 # 4. PPPoE Service Configuration
-/ppp profile add name=netpulse-pppoe local-address=10.10.0.1 remote-address=netpulse-pool dns-server=8.8.8.8,1.1.1.1
+/ppp profile add name=dartbit-pppoe local-address=10.10.0.1 remote-address=dartbit-pool dns-server=8.8.8.8,1.1.1.1
 /log info "PPPoE Profiles ready."
 
 # 5. Hotspot Service Configuration
-/ip hotspot profile add name=hsprof-netpulse hotspot-address=10.10.1.1 login-by=http-chap,cookie,https
-/ip hotspot user profile add name=netpulse-default shared-users=1 status-autorefresh=1m
+/ip hotspot profile add name=hsprof-dartbit hotspot-address=10.10.1.1 login-by=http-chap,cookie,https
+/ip hotspot user profile add name=dartbit-default shared-users=1 status-autorefresh=1m
 /log info "Hotspot Profiles and Walled Garden initialized."
 
 # 6. Firewall & NAT (Masquerade)
-/ip firewall nat add action=masquerade chain=srcnat comment="NetPulse NAT Rule"
+/ip firewall nat add action=masquerade chain=srcnat comment="dartbit NAT Rule"
 /log info "Global NAT Masquerade rule added."
 
 # 7. SNMP Monitoring
-/snmp set enabled=yes contact="netpulse-hub" location="Kenya"
-/snmp community add name=netpulse-public addresses=0.0.0.0/0 read-access=yes
+/snmp set enabled=yes contact="dartbit-hub" location="Kenya"
+/snmp community add name=dartbit-public addresses=0.0.0.0/0 read-access=yes
 /log info "SNMP monitoring community added."
 
 # 8. Dedicated API Management User
 # Credentials should be verified in the Hub dashboard after provisioning
-:do { /user add name=netpulse group=full password=netpulse123 comment="NetPulse API Bridge User" } on-error={ /log warning "User 'netpulse' already exists." }
-/log info "API Management User created (User: netpulse)."
+:do { /user add name=dartbit group=full password=dartbit123 comment="dartbit API Bridge User" } on-error={ /log warning "User 'dartbit' already exists." }
+/log info "API Management User created (User: dartbit)."
 
-/log info "--- [NETPULSE] Provisioning Completed Successfully ---"
+/log info "--- [DARTBIT] Provisioning Completed Successfully ---"
 #-------------------------------------------------------------------------------
   `;
   
@@ -254,4 +253,4 @@ app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const PORT = 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 NetPulse Core Online at http://0.0.0.0:${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit Core Online at http://0.0.0.0:${PORT}`));

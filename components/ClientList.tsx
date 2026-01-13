@@ -25,7 +25,9 @@ import {
   ArrowDown,
   Globe,
   Monitor,
-  Zap
+  Zap,
+  CheckCircle2,
+  WifiOff
 } from 'lucide-react';
 import { BILLING_PLANS } from '../constants.ts';
 import { ClientStatus, ConnectionType, Client, BillingPlan } from '../types.ts';
@@ -59,6 +61,7 @@ const ClientList: React.FC<ClientListProps> = ({
   realtimeOnly = false
 }) => {
   const [clients, setClients] = useState<any[]>([]);
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
   const [plans, setPlans] = useState<BillingPlan[]>(BILLING_PLANS);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -83,24 +86,49 @@ const ClientList: React.FC<ClientListProps> = ({
     address: ''
   });
 
-  const [counts, setCounts] = useState({ ALL: 0, PPPOE: 0, HOTSPOT: 0 });
+  const [counts, setCounts] = useState({ ALL: 0, PPPOE: 0, HOTSPOT: 0, ONLINE: 0 });
 
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [fetchedClients, fetchedActive, fetchedPlans] = await Promise.all([
+      const [fetchedClients, fetchedSessions, fetchedPlans] = await Promise.all([
         mikrotikService.getClients(),
         mikrotikService.getActiveSessions(),
         mikrotikService.getPlans()
       ]);
       
-      const targetClients = realtimeOnly ? fetchedActive : (filterStatus ? fetchedClients.filter(c => c.status === filterStatus) : fetchedClients);
-      setClients(targetClients);
+      setActiveSessions(fetchedSessions);
+      
+      // Combine Client Database with Live Sessions
+      const processedClients = fetchedClients.map(client => {
+        const session = fetchedSessions.find(s => s.username === client.username);
+        return {
+          ...client,
+          isOnline: !!session,
+          downloadRate: session?.downloadRate || 0,
+          uploadRate: session?.uploadRate || 0,
+          uptime: session?.uptime || null,
+          downloadBytes: session?.downloadBytes || (client.bandwidthUsage * 1024 * 1024 * 1024),
+          uploadBytes: session?.uploadBytes || 0
+        };
+      });
+
+      let finalDisplay;
+      if (realtimeOnly) {
+        // For Live Sessions tab, we show anyone currently authenticated
+        finalDisplay = processedClients.filter(c => c.isOnline);
+      } else {
+        // For All Clients tab, we show everyone and filter by billing status if requested
+        finalDisplay = filterStatus ? processedClients.filter(c => c.status === filterStatus) : processedClients;
+      }
+
+      setClients(finalDisplay);
       
       setCounts({
-        ALL: targetClients.length,
-        PPPOE: targetClients.filter(c => c.connectionType === ConnectionType.PPPOE).length,
-        HOTSPOT: targetClients.filter(c => c.connectionType === ConnectionType.HOTSPOT).length
+        ALL: finalDisplay.length,
+        PPPOE: finalDisplay.filter(c => c.connectionType === ConnectionType.PPPOE).length,
+        HOTSPOT: finalDisplay.filter(c => c.connectionType === ConnectionType.HOTSPOT).length,
+        ONLINE: processedClients.filter(c => c.isOnline).length
       });
       
       const availablePlans = fetchedPlans.length > 0 ? fetchedPlans : BILLING_PLANS;
@@ -114,17 +142,13 @@ const ClientList: React.FC<ClientListProps> = ({
 
   useEffect(() => {
     loadData();
-    
-    let interval: any;
-    if (realtimeOnly) {
-      interval = setInterval(() => loadData(true), 3000); // Faster polling for "Live" feel
-    }
+    const interval = setInterval(() => loadData(true), 5000); 
     
     const closeMenu = () => setActiveMenuId(null);
     window.addEventListener('click', closeMenu);
     
     return () => {
-      if (interval) clearInterval(interval);
+      clearInterval(interval);
       window.removeEventListener('click', closeMenu);
     };
   }, [realtimeOnly, filterStatus]);
@@ -200,24 +224,26 @@ const ClientList: React.FC<ClientListProps> = ({
     return matchesSearch && matchesCategory;
   });
 
-  const totalCurrentDownSpeed = filteredClients.reduce((acc, c) => acc + (c.downloadRate || 0), 0);
-  const totalCurrentUpSpeed = filteredClients.reduce((acc, c) => acc + (c.uploadRate || 0), 0);
+  const totalCurrentDownSpeed = activeSessions.reduce((acc, s) => acc + (s.downloadRate || 0), 0);
+  const totalCurrentUpSpeed = activeSessions.reduce((acc, s) => acc + (s.uploadRate || 0), 0);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
       <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-             {realtimeOnly && (
+             {realtimeOnly ? (
                <div className="relative">
-                 <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-25"></div>
-                 <Activity size={24} className="text-blue-600 relative" />
+                 <div className="absolute inset-0 bg-green-400 rounded-full animate-ping opacity-25"></div>
+                 <CheckCircle2 size={24} className="text-green-600 relative" />
                </div>
+             ) : (
+               <Users size={24} className="text-blue-600" />
              )}
              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{title}</h1>
           </div>
           <p className="text-slate-500 text-sm font-medium mt-1">
-             {realtimeOnly ? 'Authenticated sessions currently synced from active MikroTik hardware.' : description || `Managing ${clients.length} active subscribers.`}
+             {realtimeOnly ? 'Subscribers with currently authenticated hardware sessions.' : description || `Managing ${clients.length} accounts in the dartbit directory.`}
           </p>
         </div>
         {!realtimeOnly && (
@@ -244,7 +270,7 @@ const ClientList: React.FC<ClientListProps> = ({
 
       <div className="flex items-center gap-2 p-1 bg-white border border-slate-200 rounded-2xl w-fit shadow-sm">
         {[
-          { id: 'ALL', label: 'All Sessions', icon: Monitor, count: counts.ALL },
+          { id: 'ALL', label: realtimeOnly ? 'Online Now' : 'All Accounts', icon: Monitor, count: realtimeOnly ? counts.ALL : counts.ALL },
           { id: ConnectionType.PPPOE, label: 'PPPoE', icon: Radio, count: counts.PPPOE },
           { id: ConnectionType.HOTSPOT, label: 'Hotspot', icon: Wifi, count: counts.HOTSPOT }
         ].map((cat) => (
@@ -260,7 +286,7 @@ const ClientList: React.FC<ClientListProps> = ({
             <cat.icon size={16} />
             <span className="text-xs font-bold tracking-tight">{cat.label}</span>
             <div className={`px-2 py-0.5 rounded-lg border text-[10px] font-black min-w-[28px] ${
-              categoryFilter === cat.id ? 'bg-white/20 border-white/40 text-white' : 'border-slate-200 text-orange-500'
+              categoryFilter === cat.id ? 'bg-white/20 border-white/40 text-white' : 'border-slate-200 text-blue-500'
             }`}>
               {cat.count}
             </div>
@@ -277,8 +303,8 @@ const ClientList: React.FC<ClientListProps> = ({
         ) : filteredClients.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center text-center">
             <Activity size={48} className="text-slate-100 mb-4" />
-            <h3 className="text-lg font-bold text-slate-900">No Active Sessions</h3>
-            <p className="text-slate-400 text-sm max-w-xs mx-auto">Either no users are connected, or the MikroTik nodes are unreachable.</p>
+            <h3 className="text-lg font-bold text-slate-900">No {realtimeOnly ? 'Online' : 'Matching'} Subscribers</h3>
+            <p className="text-slate-400 text-sm max-w-xs mx-auto">No users currently match your selection criteria.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -286,10 +312,10 @@ const ClientList: React.FC<ClientListProps> = ({
               <thead className="bg-slate-50/50 border-b border-slate-100">
                 <tr>
                   <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Subscriber</th>
-                  {realtimeOnly && <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Uptime</th>}
-                  {!realtimeOnly && <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Plan</th>}
-                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">{realtimeOnly ? 'Live Speed' : 'Status'}</th>
-                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Accumulated Traffic</th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Plan</th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Billing Status</th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Connectivity</th>
+                  <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Traffic</th>
                   <th className="px-8 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
@@ -298,10 +324,13 @@ const ClientList: React.FC<ClientListProps> = ({
                   <tr key={client.id} className="hover:bg-blue-50/20 transition-colors group">
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${
-                          realtimeOnly ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm relative ${
+                          client.isOnline ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'
                         }`}>
                           {client.connectionType === ConnectionType.PPPOE ? <Radio size={18} /> : <Wifi size={18} />}
+                          {client.isOnline && (
+                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse"></div>
+                          )}
                         </div>
                         <div>
                           <div className="text-sm font-bold text-slate-900">{client.fullName}</div>
@@ -309,44 +338,36 @@ const ClientList: React.FC<ClientListProps> = ({
                         </div>
                       </div>
                     </td>
-                    
-                    {realtimeOnly && (
-                      <td className="px-8 py-5">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                          <Clock size={14} className="text-blue-500" />
-                          {client.uptime}
-                        </div>
-                      </td>
-                    )}
-
-                    {!realtimeOnly && (
-                      <td className="px-8 py-5">
-                        <div className="flex items-center gap-2">
-                          <Package size={14} className="text-blue-500" />
-                          <span className="text-sm font-medium text-slate-700">{plans.find(p => p.id === client.planId)?.name || 'Standard'}</span>
-                        </div>
-                      </td>
-                    )}
 
                     <td className="px-8 py-5">
-                      {realtimeOnly ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                             <ArrowDown size={12} className="text-blue-600" />
-                             <span className="text-xs font-black text-slate-900">{formatSpeed(client.downloadRate)}</span>
-                          </div>
-                          <div className="flex items-center gap-2 opacity-60">
-                             <ArrowUp size={12} className="text-green-600" />
-                             <span className="text-[10px] font-bold text-slate-500">{formatSpeed(client.uploadRate)}</span>
-                          </div>
+                      <div className="flex items-center gap-2">
+                        <Package size={14} className="text-blue-500" />
+                        <span className="text-sm font-medium text-slate-700">{plans.find(p => p.id === client.planId)?.name || 'Standard'}</span>
+                      </div>
+                    </td>
+
+                    <td className="px-8 py-5">
+                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                        client.status === ClientStatus.ACTIVE ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
+                      }`}>
+                        {client.status}
+                      </div>
+                    </td>
+
+                    <td className="px-8 py-5">
+                      {client.isOnline ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase text-green-600">
+                            <Zap size={10} className="fill-green-600" /> Online
+                          </span>
+                          <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1">
+                            <Clock size={10} /> {client.uptime || 'just now'}
+                          </span>
                         </div>
                       ) : (
-                        <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-                          client.status === ClientStatus.ACTIVE ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                        }`}>
-                          <div className={`w-1.5 h-1.5 rounded-full ${client.status === ClientStatus.ACTIVE ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                          {client.status}
-                        </div>
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-300">
+                          <WifiOff size={10} /> Offline
+                        </span>
                       )}
                     </td>
 
@@ -354,20 +375,19 @@ const ClientList: React.FC<ClientListProps> = ({
                       <div className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-4">
                           <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-600">
-                            <span className="opacity-50 font-black">DL</span>
-                            {formatBytes(client.downloadBytes || (client.bandwidthUsage * 1024 * 1024 * 1024))}
+                            <ArrowDown size={10} />
+                            {formatBytes(client.downloadBytes)}
                           </div>
                           <div className="flex items-center gap-1.5 text-[11px] font-bold text-green-600">
-                            <span className="opacity-50 font-black">UL</span>
-                            {formatBytes(client.uploadBytes || 0)}
+                            <ArrowUp size={10} />
+                            {formatBytes(client.uploadBytes)}
                           </div>
                         </div>
-                        <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full bg-blue-500 transition-all duration-1000 ${client.downloadRate > 500000 ? 'animate-pulse' : ''}`} 
-                            style={{ width: `${Math.min(100, (client.downloadRate / 10000000) * 100)}%` }}
-                          ></div>
-                        </div>
+                        {client.isOnline && (
+                          <div className="flex gap-2">
+                             <span className="text-[9px] font-bold text-slate-500">Live: {formatSpeed(client.downloadRate)}</span>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-8 py-5 text-right relative">
@@ -382,10 +402,14 @@ const ClientList: React.FC<ClientListProps> = ({
                            <button onClick={() => handleOpenModal(client)} className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-600">
                              <Edit2 size={14} /> Inspect Account
                            </button>
-                           <div className="h-px bg-slate-50 mx-2 my-1"></div>
-                           <button onClick={() => {}} className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50">
-                             <Activity size={14} /> Terminate Session
-                           </button>
+                           {client.isOnline && (
+                             <>
+                               <div className="h-px bg-slate-50 mx-2 my-1"></div>
+                               <button onClick={() => {}} className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50">
+                                 <Activity size={14} /> Terminate Session
+                               </button>
+                             </>
+                           )}
                         </div>
                       )}
                     </td>
@@ -397,37 +421,35 @@ const ClientList: React.FC<ClientListProps> = ({
         )}
       </div>
 
-      {realtimeOnly && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
-          <div className="px-6 py-3 bg-slate-900 text-white rounded-2xl flex items-center gap-6 shadow-2xl border border-white/10 backdrop-blur-md">
-             <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></div>
-                <div className="flex flex-col">
-                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Live Downstream</span>
-                   <span className="text-sm font-black text-blue-400">{formatSpeed(totalCurrentDownSpeed)}</span>
-                </div>
-             </div>
-             <div className="w-px h-8 bg-white/10"></div>
-             <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                <div className="flex flex-col">
-                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Live Upstream</span>
-                   <span className="text-sm font-black text-green-400">{formatSpeed(totalCurrentUpSpeed)}</span>
-                </div>
-             </div>
-             <div className="w-px h-8 bg-white/10"></div>
-             <div className="flex items-center gap-3">
-                <div className="p-1.5 bg-blue-600 rounded-lg">
-                   <Zap size={14} className="text-white" />
-                </div>
-                <div className="flex flex-col">
-                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Total Nodes</span>
-                   <span className="text-sm font-black text-white">{counts.ALL} Online</span>
-                </div>
-             </div>
-          </div>
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+        <div className="px-6 py-3 bg-slate-900 text-white rounded-2xl flex items-center gap-6 shadow-2xl border border-white/10 backdrop-blur-md">
+           <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></div>
+              <div className="flex flex-col">
+                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Aggregate Down</span>
+                 <span className="text-sm font-black text-blue-400">{formatSpeed(totalCurrentDownSpeed)}</span>
+              </div>
+           </div>
+           <div className="w-px h-8 bg-white/10"></div>
+           <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+              <div className="flex flex-col">
+                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Aggregate Up</span>
+                 <span className="text-sm font-black text-green-400">{formatSpeed(totalCurrentUpSpeed)}</span>
+              </div>
+           </div>
+           <div className="w-px h-8 bg-white/10"></div>
+           <div className="flex items-center gap-3">
+              <div className="p-1.5 bg-green-600 rounded-lg">
+                 <Zap size={14} className="text-white" />
+              </div>
+              <div className="flex flex-col">
+                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Live Presence</span>
+                 <span className="text-sm font-black text-white">{counts.ONLINE} Online</span>
+              </div>
+           </div>
         </div>
-      )}
+      </div>
 
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">

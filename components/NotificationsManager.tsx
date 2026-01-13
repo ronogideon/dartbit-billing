@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   Send, 
@@ -29,8 +28,8 @@ const NotificationsManager: React.FC = () => {
   const [providerConfig, setProviderConfig] = useState({
     provider: 'africastalking',
     apiKey: '********************************',
-    username: 'netpulse_admin',
-    senderId: 'NETPULSE'
+    username: 'dartbit_admin',
+    senderId: 'DARTBIT'
   });
 
   const handleSendMessage = () => {
@@ -109,7 +108,7 @@ const NotificationsManager: React.FC = () => {
                   </div>
                   <textarea 
                     rows={6}
-                    placeholder="Hello {name}, your NetPulse subscription is about to expire..."
+                    placeholder="Hello {name}, your dartbit subscription is about to expire..."
                     className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-medium"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}

@@ -14,7 +14,8 @@ import {
   Package,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  Radio
 } from 'lucide-react';
 import { mikrotikService } from '../services/mikrotikService.ts';
 
@@ -35,18 +36,18 @@ const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   onMobileClose
 }) => {
-  const [counts, setCounts] = useState({ clients: 0, active: 0, nodes: 0 });
+  const [counts, setCounts] = useState({ clients: 0, online: 0, nodes: 0 });
 
   useEffect(() => {
     const fetchCounts = async () => {
-      const [clients, active, nodes] = await Promise.all([
+      const [clients, sessions, nodes] = await Promise.all([
         mikrotikService.getClients(),
         mikrotikService.getActiveSessions(),
         mikrotikService.getRouters()
       ]);
       setCounts({
         clients: clients.length,
-        active: active.length,
+        online: sessions.length,
         nodes: nodes.length
       });
     };
@@ -57,14 +58,14 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { id: 'clients', icon: Users, label: 'All Clients', count: counts.clients },
-    { id: 'active-clients', icon: CheckCircle2, label: 'Active Clients', count: counts.active },
-    { id: 'billing', icon: Package, label: 'Packages' },
-    { id: 'payments', icon: Wallet, label: 'Payments' },
-    { id: 'notifications', icon: BellRing, label: 'Notifications' },
-    { id: 'mikrotik', icon: Network, label: 'MikroTik Nodes', count: counts.nodes },
-    { id: 'reports', icon: FileText, label: 'Reports' },
-    { id: 'settings', icon: Settings, label: 'System Settings' },
+    { id: 'clients', icon: Users, label: 'All Subscribers', count: counts.clients },
+    { id: 'active-clients', icon: Radio, label: 'Live Sessions', count: counts.online },
+    { id: 'billing', icon: Package, label: 'Service Plans' },
+    { id: 'payments', icon: Wallet, label: 'Collections' },
+    { id: 'notifications', icon: BellRing, label: 'Broadcasts' },
+    { id: 'mikrotik', icon: Network, label: 'Access Nodes', count: counts.nodes },
+    { id: 'reports', icon: FileText, label: 'Insights' },
+    { id: 'settings', icon: Settings, label: 'System' },
   ];
 
   const handleNavClick = (id: string) => {
@@ -86,7 +87,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <div className="bg-blue-600 p-2 rounded-lg">
               <Zap size={20} className="text-white" />
             </div>
-            {(!isCollapsed || isMobileOpen) && <span className="text-xl font-bold tracking-tight">NetPulse</span>}
+            {(!isCollapsed || isMobileOpen) && <span className="text-xl font-bold tracking-tight">dartbit</span>}
           </div>
           {isMobileOpen && <button onClick={onMobileClose} className="ml-auto p-2 text-slate-400 hover:text-white lg:hidden"><X size={20} /></button>}
         </div>
@@ -103,7 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <item.icon size={20} className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'}`} />
                 {(!isCollapsed || isMobileOpen) && (
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-medium">{item.label}</span>
+                    <span className="font-medium text-sm">{item.label}</span>
                     {item.count !== undefined && (
                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border ${isActive ? 'bg-white/20 border-white/40 text-white' : 'border-slate-700 text-slate-500 group-hover:border-blue-500/50 group-hover:text-blue-400'}`}>
                          {item.count}

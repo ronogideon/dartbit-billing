@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Network, 
@@ -137,7 +136,7 @@ const MikroTikConfig: React.FC = () => {
     }
   };
 
-  const loaderCommand = `/tool fetch url="http://${cleanServerIp}:5000/boot?ip=${cleanServerIp}" dst-path=netpulse.rsc; :delay 3s; /import netpulse.rsc`;
+  const loaderCommand = `/tool fetch url="http://${cleanServerIp}:5000/boot?ip=${cleanServerIp}" dst-path=dartbit.rsc; :delay 3s; /import dartbit.rsc`;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">

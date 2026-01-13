@@ -1,0 +1,12 @@
+[
+  {
+    "id": "1768307418192",
+    "name": "10Mbps Home",
+    "type": "PPPoE",
+    "speedLimit": "8M/10M",
+    "price": 1500,
+    "validityDisplay": "1 Month",
+    "durationMinutes": 43200,
+    "description": "10Mbps Home: 10Mbps PPPoE Package"
+  }
+]

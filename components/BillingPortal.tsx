@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { 
   CreditCard, 
@@ -25,8 +24,8 @@ const BillingPortal: React.FC = () => {
     <div className="min-h-screen bg-[#0a0c10] text-white selection:bg-blue-500/30">
       <nav className="max-w-5xl mx-auto p-6 flex justify-between items-center border-b border-white/5">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold">NP</div>
-          <span className="font-bold text-lg tracking-tight">NetPulse Portal</span>
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold">DB</div>
+          <span className="font-bold text-lg tracking-tight">dartbit Portal</span>
         </div>
         <div className="flex items-center gap-6">
           <div className="flex flex-col items-end">

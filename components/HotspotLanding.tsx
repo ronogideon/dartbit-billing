@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   Wifi, 
@@ -91,7 +90,7 @@ const HotspotLanding: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-white">
               <Zap size={14} />
             </div>
-            NetPulse Hotspot
+            dartbit Hotspot
           </div>
           <button onClick={onBack} className="text-blue-600 text-xs font-bold hover:underline">Exit</button>
         </div>
@@ -306,7 +305,7 @@ const HotspotLanding: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         {/* Footer info */}
         <div className="p-6 text-center border-t border-slate-50">
           <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest flex items-center justify-center gap-2">
-            <ShieldCheck size={12} /> Kenya M-Pesa Gateway • NetPulse v2.5
+            <ShieldCheck size={12} /> Kenya M-Pesa Gateway • dartbit v2.5
           </p>
         </div>
       </div>
