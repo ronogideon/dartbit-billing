@@ -274,9 +274,9 @@ const ClientList: React.FC<ClientListProps> = ({
               <tr className="text-[11px] font-black text-slate-700 uppercase tracking-[0.15em]">
                 <th className="px-10 py-6">Subscriber</th>
                 <th className="px-10 py-6">Plan</th>
-                <th className="px-10 py-6">Billing Status</th>
+                <th className="px-10 py-6 text-center">Live Speed</th>
                 <th className="px-10 py-6">Connectivity</th>
-                <th className="px-10 py-6">Traffic</th>
+                <th className="px-10 py-6">Total Traffic</th>
                 <th className="px-10 py-6 text-right">Actions</th>
               </tr>
             </thead>
@@ -303,9 +303,18 @@ const ClientList: React.FC<ClientListProps> = ({
                     </div>
                   </td>
                   <td className="px-10 py-7">
-                    <span className="inline-flex items-center px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-blue-50 text-blue-600 border border-blue-100">
-                       {client.status}
-                    </span>
+                    {client.isOnline ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="flex items-center gap-1.5 text-[11px] font-black text-blue-600">
+                           <ArrowDown size={12} /> {formatSpeed(client.downloadRate)}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[11px] font-black text-green-600">
+                           <ArrowUp size={12} /> {formatSpeed(client.uploadRate)}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center text-[10px] font-black text-slate-300 uppercase">Idle</div>
+                    )}
                   </td>
                   <td className="px-10 py-7">
                     {client.isOnline ? (
@@ -321,10 +330,10 @@ const ClientList: React.FC<ClientListProps> = ({
                   </td>
                   <td className="px-10 py-7">
                     <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2 text-xs font-bold text-blue-700">
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
                         <ArrowDown size={14} /> {formatBytes(client.totalDownload || 0)}
                       </div>
-                      <div className="flex items-center gap-2 text-xs font-bold text-green-700">
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
                         <ArrowUp size={14} /> {formatBytes(client.totalUpload || 0)}
                       </div>
                     </div>
