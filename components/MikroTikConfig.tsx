@@ -14,9 +14,9 @@ import {
   Server, 
   ArrowUpDown, 
   Power,
-  Clock,
   Cpu,
-  Database
+  Database,
+  Activity
 } from 'lucide-react';
 import { mikrotikService } from '../services/mikrotikService.ts';
 import { RouterStatus, RouterNode } from '../types.ts';
@@ -46,7 +46,7 @@ const MikroTikConfig: React.FC = () => {
 
   useEffect(() => {
     loadRouters();
-    const interval = setInterval(loadRouters, 5000); // 5s refresh for telemetry
+    const interval = setInterval(loadRouters, 5000); 
     const handleClick = () => setActiveMenuId(null);
     window.addEventListener('click', handleClick);
     return () => { clearInterval(interval); window.removeEventListener('click', handleClick); };
@@ -106,9 +106,9 @@ const MikroTikConfig: React.FC = () => {
   };
 
   const sortedRouters = [...routers].sort((a, b) => {
-    const valA = a[sortKey] || '';
-    const valB = b[sortKey] || '';
-    return sortDir === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
+    const valA = String(a[sortKey] || '');
+    const valB = String(b[sortKey] || '');
+    return sortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
   });
 
   const baseUrl = window.location.origin;
@@ -120,9 +120,9 @@ const MikroTikConfig: React.FC = () => {
         <div>
           <div className="flex items-center gap-3">
              <Network className="text-blue-600" size={24} />
-             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Access Backbone</h1>
+             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Access Nodes</h1>
           </div>
-          <p className="text-slate-500 text-sm font-medium mt-1">Live hardware telemetry and automated node provisioning.</p>
+          <p className="text-slate-500 text-sm font-medium mt-1">Live hardware telemetry (ether2-10 bridged) and provisioning.</p>
         </div>
         <button 
           onClick={handleStartOnboarding} 
@@ -136,7 +136,7 @@ const MikroTikConfig: React.FC = () => {
         {loading && routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center gap-4 text-slate-400">
             <Loader2 className="animate-spin text-blue-600" size={40} />
-            <p className="text-xs font-black uppercase tracking-widest animate-pulse">Syncing Telemetry...</p>
+            <p className="text-xs font-black uppercase tracking-widest animate-pulse">Syncing Backbone Telemetry...</p>
           </div>
         ) : routers.length === 0 ? (
           <div className="py-32 text-center space-y-4">
@@ -144,7 +144,7 @@ const MikroTikConfig: React.FC = () => {
                <Network className="text-slate-200" size={40} />
             </div>
             <h3 className="text-lg font-bold text-slate-800">No Managed Nodes</h3>
-            <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium">Use the ZTP wizard to link your MikroTik hardware.</p>
+            <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium">Link your hardware using the ZTP wizard.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -152,12 +152,12 @@ const MikroTikConfig: React.FC = () => {
               <thead>
                 <tr className="bg-slate-50/50 border-b border-slate-100">
                   <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest cursor-pointer group" onClick={() => { setSortKey('name'); setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); }}>
-                    <div className="flex items-center gap-2">Board Name <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
+                    <div className="flex items-center gap-2">Node Identity <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
                   </th>
                   <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Hardware / OS</th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">Resources</th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">Active Users</th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Connectivity</th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">CPU / Memory</th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">Sessions</th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Status</th>
                   <th className="px-10 py-6 text-right"></th>
                 </tr>
               </thead>
@@ -166,7 +166,7 @@ const MikroTikConfig: React.FC = () => {
                   <tr key={router.id} className="hover:bg-slate-50/30 transition-colors group">
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-4">
-                        <div className={`p-3 rounded-2xl ${router.status === 'ONLINE' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
+                        <div className={`p-3 rounded-2xl ${router.status === 'ONLINE' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-100 text-slate-400'}`}>
                           <Server size={20} />
                         </div>
                         <div>
@@ -176,14 +176,16 @@ const MikroTikConfig: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-10 py-7">
-                      <p className="text-xs font-bold text-slate-800 uppercase">{router.model || 'MikroTik Board'}</p>
-                      <p className="text-[9px] font-black text-blue-600 uppercase tracking-wider">v{router.version || '0.0'}</p>
+                      <div className="space-y-0.5">
+                        <p className="text-xs font-black text-slate-800 uppercase">{router.model || 'MikroTik Board'}</p>
+                        <p className="text-[9px] font-black text-blue-600 uppercase tracking-wider">RouterOS v{router.version || '0.0'}</p>
+                      </div>
                     </td>
                     <td className="px-10 py-7">
                       <div className="space-y-2 max-w-[120px] mx-auto">
                         <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase">
-                          <span>CPU: {router.cpu}%</span>
-                          <span>RAM: {router.memory}MB</span>
+                          <span className="flex items-center gap-1"><Cpu size={10}/> {router.cpu}%</span>
+                          <span className="flex items-center gap-1"><Database size={10}/> {router.memory}MB</span>
                         </div>
                         <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                           <div className={`h-full transition-all duration-1000 ${router.cpu > 70 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${router.cpu}%` }}></div>
@@ -191,14 +193,17 @@ const MikroTikConfig: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-10 py-7 text-center">
-                      <span className="text-lg font-black text-slate-900">{router.sessions}</span>
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Authenticated</p>
+                      <div className="inline-flex flex-col items-center">
+                        <span className="text-lg font-black text-slate-900">{router.sessions}</span>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Active</p>
+                      </div>
                     </td>
                     <td className="px-10 py-7">
                       <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-[10px] font-black uppercase border ${router.status === 'ONLINE' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${router.status === 'ONLINE' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                         {router.status}
                       </span>
+                      <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">UP: {router.uptime}</p>
                     </td>
                     <td className="px-10 py-7 text-right relative">
                       <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === router.id ? null : router.id); }} className="p-2 text-slate-400 hover:text-slate-900 transition-colors">
@@ -207,11 +212,11 @@ const MikroTikConfig: React.FC = () => {
                       {activeMenuId === router.id && (
                         <div className="absolute right-10 top-16 w-52 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 py-1.5 animate-in zoom-in-95 overflow-hidden">
                           <button onClick={(e) => handleReboot(e, router.id)} className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black uppercase text-slate-700 hover:bg-slate-50 transition-colors">
-                             <Power size={16} className="text-blue-600" /> Restart Board
+                             <Power size={16} className="text-blue-600" /> Remote Reboot
                           </button>
                           <div className="h-px bg-slate-100 mx-2 my-1"></div>
                           <button onClick={(e) => handleDelete(e, router.id)} className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black uppercase text-red-600 hover:bg-red-50 transition-colors">
-                            <Trash2 size={16} /> Delete Registry
+                            <Trash2 size={16} /> Remove Node
                           </button>
                         </div>
                       )}
@@ -230,7 +235,7 @@ const MikroTikConfig: React.FC = () => {
             <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-4">
                 <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-xl shadow-blue-600/20"><Zap size={24} /></div>
-                <h2 className="text-2xl font-black text-slate-900 tracking-tight">ZTP Deployment</h2>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Provisioning Wizard</h2>
               </div>
               <button onClick={() => setIsProvisioning(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={36} /></button>
             </div>
@@ -239,12 +244,12 @@ const MikroTikConfig: React.FC = () => {
               {discoveryStatus === 'name' && (
                 <div className="space-y-8">
                   <div className="text-center space-y-2">
-                    <h3 className="text-xl font-bold text-slate-900">Define Board Alias</h3>
-                    <p className="text-sm text-slate-500 font-medium">Identify this hardware in your dashboard.</p>
+                    <h3 className="text-xl font-bold text-slate-900">Label your Node</h3>
+                    <p className="text-sm text-slate-500 font-medium">This name identifies the router in your network topology.</p>
                   </div>
-                  <input autoFocus className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black text-xl outline-none focus:border-blue-600 transition-all text-center" placeholder="e.g. Sector-B-CCR" value={nodeName} onChange={(e) => setNodeName(e.target.value)} />
+                  <input autoFocus className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black text-xl outline-none focus:border-blue-600 transition-all text-center" placeholder="e.g. CORE-BACKBONE-01" value={nodeName} onChange={(e) => setNodeName(e.target.value)} />
                   <button onClick={() => setDiscoveryStatus('waiting')} disabled={!nodeName} className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-lg shadow-2xl active:scale-95 transition-all">
-                    Fetch Provisioning Script
+                    Generate ZTP Script
                   </button>
                 </div>
               )}
@@ -252,13 +257,15 @@ const MikroTikConfig: React.FC = () => {
               {discoveryStatus === 'waiting' && (
                 <div className="space-y-8">
                   <div className="bg-slate-900 rounded-[2rem] p-8 relative group border border-white/5 shadow-2xl">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Paste into MikroTik Terminal</p>
-                    <code className="block text-xs font-mono text-blue-400 break-all leading-loose">{ztpCommand}</code>
-                    <button onClick={() => navigator.clipboard.writeText(ztpCommand)} className="absolute right-6 top-6 p-3 bg-white/10 text-white rounded-2xl hover:bg-white/20 transition-all"><Copy size={20} /></button>
+                    <div className="flex justify-between items-center mb-4">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Execute in Router Terminal</p>
+                      <button onClick={() => navigator.clipboard.writeText(ztpCommand)} className="p-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all flex items-center gap-2 text-[10px] font-bold"><Copy size={14} /> COPY</button>
+                    </div>
+                    <code className="block text-xs font-mono text-blue-400 break-all leading-relaxed bg-black/30 p-4 rounded-xl">{ztpCommand}</code>
                   </div>
                   <div className="flex flex-col items-center gap-6 py-10 border-4 border-dashed border-slate-100 rounded-[2.5rem] bg-slate-50/50">
                     <RefreshCw className="animate-spin text-blue-600" size={40} />
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Waiting for Handshake...</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Awaiting API Handshake...</p>
                   </div>
                 </div>
               )}
@@ -268,8 +275,8 @@ const MikroTikConfig: React.FC = () => {
                   <div className="mx-auto w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center shadow-xl">
                     <ShieldCheck size={48} />
                   </div>
-                  <h3 className="text-3xl font-black text-slate-900">Config Applied!</h3>
-                  <p className="text-slate-500 text-sm font-medium">Hardware <b>{nodeName}</b> is now managed via API.</p>
+                  <h3 className="text-3xl font-black text-slate-900">Provisioned!</h3>
+                  <p className="text-slate-500 text-sm font-medium">Node <b>{nodeName}</b> is now online with ports 2-10 bridged.</p>
                 </div>
               )}
             </div>

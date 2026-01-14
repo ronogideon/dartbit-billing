@@ -32,8 +32,10 @@ const writeJson = (file, data) => {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 };
 
-// Persistence for live speed calculations
-const trafficHistory = {};
+/**
+ * TELEMETRY CACHE: Stores previous byte counts for rate calculation
+ */
+const trafficCache = new Map();
 
 async function getRouterConn(router) {
   return new RouterOSAPI({
@@ -46,7 +48,7 @@ async function getRouterConn(router) {
 }
 
 /**
- * TELEMETRY ENGINE: Fetch Detailed Hardware Stats
+ * MONITORING LOGIC: Extract Hardware & Live Telemetry
  */
 async function getRouterStats(router) {
   const api = await getRouterConn(router);
@@ -79,7 +81,7 @@ async function getRouterStats(router) {
 }
 
 /**
- * MONITORING LOGIC: Real-time Live Traffic Rate Engine
+ * MONITORING LOGIC: Real-time Live Traffic Rate Engine (Mbps)
  */
 app.get('/api/mikrotik/active-sessions', async (req, res) => {
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
@@ -95,29 +97,34 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
       const hs = await api.write('/ip/hotspot/active/print');
       await api.close();
 
-      [...ppp, ...hs].forEach(s => {
+      const allSessions = [...ppp, ...hs];
+
+      allSessions.forEach(s => {
         const username = s.name || s.user;
         const key = `${router.id}-${username}`;
         const bIn = parseInt(s['bytes-in']) || 0;
         const bOut = parseInt(s['bytes-out']) || 0;
 
         let dRate = 0, uRate = 0;
-        if (trafficHistory[key]) {
-          const delta = (now - trafficHistory[key].time) / 1000;
-          if (delta > 0) {
-            // bits per second = (delta bytes * 8) / seconds
-            uRate = Math.max(0, (bIn - trafficHistory[key].bIn) * 8 / delta);
-            dRate = Math.max(0, (bOut - trafficHistory[key].bOut) * 8 / delta);
+        const prev = trafficCache.get(key);
+        
+        if (prev) {
+          const timeDelta = (now - prev.time) / 1000;
+          if (timeDelta > 0) {
+            // formula: (delta_bytes * 8 bits) / seconds = bps
+            uRate = Math.max(0, (bIn - prev.bIn) * 8 / timeDelta);
+            dRate = Math.max(0, (bOut - prev.bOut) * 8 / timeDelta);
           }
         }
-        trafficHistory[key] = { time: now, bIn, bOut };
+        
+        trafficCache.set(key, { time: now, bIn, bOut });
 
         const clientInfo = clients.find(c => c.username === username);
 
         sessions.push({
           id: s['.id'],
           username: username,
-          fullName: clientInfo ? clientInfo.fullName : 'Guest Subscriber',
+          fullName: clientInfo ? clientInfo.fullName : 'Guest User',
           uptime: s.uptime,
           downloadRate: dRate,
           uploadRate: uRate,
@@ -133,7 +140,8 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
 });
 
 /**
- * PROVISIONING LOGIC: Zero-Touch Configuration Download & Apply
+ * PROVISIONING LOGIC: Comprehensive ZTP Script
+ * Configures Bridges, Ports 2-10, Firewall, Mangle, and Walled Garden
  */
 app.get('/boot', (req, res) => {
   const hostHeader = req.headers.host || '127.0.0.1:5000';
@@ -148,10 +156,10 @@ app.get('/boot', (req, res) => {
 
   res.set('Content-Type', 'text/plain');
   res.send(`
-/log info "--- [DARTBIT] ZTP START ---";
+/log info "--- [DARTBIT] STARTING ADVANCED PROVISIONING ---";
 :delay 1s;
 
-# 1. Management Access
+# 1. API & USER ACCESS
 :do { 
     /user add name=dartbit group=full password=dartbit123 comment="dartbit Automated Bridge";
 } on-error={ 
@@ -160,39 +168,50 @@ app.get('/boot', (req, res) => {
 /ip service enable api;
 /ip service set api port=8728;
 
-# 2. Interface Bridging
+# 2. SUBSCRIBER BRIDGE (ether2 to ether10)
 :do { 
-    /interface bridge add name=br-subs comment="Subscriber Access Bridge" arp=reply-only;
-} on-error={};
-
-:foreach i in=[/interface ethernet find where !(name~"ether1")] do={
-    :local ifName [/interface ethernet get $i name];
-    :do { /interface bridge port add bridge=br-subs interface=$ifName; } on-error={};
+    /interface bridge add name=br-subs comment="Authenticated Subscriber Bridge" arp=reply-only;
+} on-error={ 
+    /interface bridge set [find name=br-subs] arp=reply-only;
 };
 
-# 3. IP Services
+:for i from=2 to=10 do={
+    :local ifName "ether$i";
+    :do {
+        /interface bridge port add bridge=br-subs interface=$ifName;
+    } on-error={
+        /interface bridge port set [find interface=$ifName] bridge=br-subs;
+    };
+};
+
+# 3. IP NETWORKING
 :do { /ip pool add name=pool-subs ranges=10.50.10.2-10.50.10.254; } on-error={};
 :do { /ip address add address=10.50.10.1/24 interface=br-subs; } on-error={};
 
-# 4. PPPoE Server
-:do { /ppp profile add name=prof-dartbit local-address=10.50.10.1 remote-address=pool-subs dns-server=8.8.8.8; } on-error={};
+# 4. PPPoE SERVER SETUP
+:do { /ppp profile add name=prof-dartbit local-address=10.50.10.1 remote-address=pool-subs dns-server=8.8.8.8,1.1.1.1 use-encryption=yes; } on-error={};
 :do { /interface pppoe-server server add disabled=no interface=br-subs service-name=pppoe-dartbit default-profile=prof-dartbit one-session-per-host=yes; } on-error={};
 
-# 5. Hotspot & Walled Garden (Allow portal access even if expired)
-:do { /ip hotspot profile add name=hsprof-dartbit hotspot-address=10.50.10.1 login-by=http-chap; } on-error={};
+# 5. HOTSPOT & WALLED GARDEN
+:do { /ip hotspot profile add name=hsprof-dartbit hotspot-address=10.50.10.1 login-by=http-chap,http-pap; } on-error={};
 :do { /ip hotspot add name=hs-dartbit interface=br-subs profile=hsprof-dartbit address-pool=pool-subs disabled=no; } on-error={};
-:do { /ip hotspot walled-garden add dst-host="${serverIp}"; } on-error={};
+:do { /ip hotspot walled-garden add dst-host="${serverIp}" comment="Allow Billing Portal Access"; } on-error={};
 
-# 6. Performance & Security
-/ip firewall nat add action=masquerade chain=srcnat out-interface=ether1 comment="NAT Access";
-/ip firewall mangle add action=change-mss chain=forward new-mss=1440 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=1441-65535 comment="Fix PPPoE MSS Clamp";
+# 6. FIREWALL & PERFORMANCE (Mangle rules for PPPoE MSS)
+/ip firewall nat add action=masquerade chain=srcnat out-interface=ether1 comment="NAT Internet Access";
+/ip firewall mangle add action=change-mss chain=forward new-mss=1440 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=1441-65535 comment="Fix PPPoE MSS Clamping";
 
-/log info "--- [DARTBIT] ZTP COMPLETE ---";
+# 7. INPUT PROTECTION
+/ip firewall filter add chain=input action=accept protocol=tcp dst-port=8728 comment="Allow API";
+/ip firewall filter add chain=input action=accept connection-state=established,related;
+/ip firewall filter add chain=input action=drop in-interface=!ether1 comment="Drop unauthorized local input";
+
+/log info "--- [DARTBIT] ZTP CONFIGURATION APPLIED SUCCESSFULLY ---";
   `);
 });
 
 /**
- * CONTROL LOGIC: Hardware Management Actions
+ * CONTROL LOGIC: Remote Hardware Actions
  */
 app.post('/api/routers/:id/reboot', async (req, res) => {
   const routers = readJson(DB.routers);
@@ -203,7 +222,7 @@ app.post('/api/routers/:id/reboot', async (req, res) => {
     await api.connect();
     await api.write('/system/reboot');
     res.json({ success: true });
-  } catch (e) { res.json({ success: true, message: 'Command sent' }); }
+  } catch (e) { res.json({ success: true, message: 'Rebooting' }); }
 });
 
 app.get('/api/routers', async (req, res) => {
@@ -253,4 +272,4 @@ app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit ISP Engine Live on Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit ISP Backbone Live on Port ${PORT}`));
