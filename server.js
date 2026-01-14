@@ -32,9 +32,6 @@ const writeJson = (file, data) => {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 };
 
-/**
- * TELEMETRY CACHE: Stores previous byte counts for rate calculation
- */
 const trafficCache = new Map();
 
 async function getRouterConn(router) {
@@ -48,8 +45,36 @@ async function getRouterConn(router) {
 }
 
 /**
- * MONITORING LOGIC: Extract Hardware & Live Telemetry
+ * SYNC ENGINE: Push credentials to physical hardware
  */
+async function syncClientToRouter(router, client) {
+  const api = await getRouterConn(router);
+  try {
+    await api.connect();
+    const isPpp = client.connectionType === 'PPPoE';
+    const path = isPpp ? '/ppp/secret' : '/ip/hotspot/user';
+    
+    // Check if user exists
+    const existing = await api.write(`${path}/print`, { [`?name`]: client.username });
+    
+    const params = {
+      name: client.username,
+      password: client.password || '1234',
+      profile: isPpp ? 'prof-dartbit' : 'hsprof-dartbit',
+      comment: `dartbit:${client.id}`
+    };
+
+    if (existing.length > 0) {
+      await api.write(`${path}/set`, { '.id': existing[0]['.id'], ...params });
+    } else {
+      await api.write(`${path}/add`, params);
+    }
+    await api.close();
+  } catch (e) {
+    console.error(`Sync failed for router ${router.name}:`, e.message);
+  }
+}
+
 async function getRouterStats(router) {
   const api = await getRouterConn(router);
   try {
@@ -80,9 +105,6 @@ async function getRouterStats(router) {
   }
 }
 
-/**
- * MONITORING LOGIC: Real-time Live Traffic Rate Engine (Mbps)
- */
 app.get('/api/mikrotik/active-sessions', async (req, res) => {
   const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
   const clients = readJson(DB.clients);
@@ -97,9 +119,7 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
       const hs = await api.write('/ip/hotspot/active/print');
       await api.close();
 
-      const allSessions = [...ppp, ...hs];
-
-      allSessions.forEach(s => {
+      [...ppp, ...hs].forEach(s => {
         const username = s.name || s.user;
         const key = `${router.id}-${username}`;
         const bIn = parseInt(s['bytes-in']) || 0;
@@ -107,16 +127,13 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
 
         let dRate = 0, uRate = 0;
         const prev = trafficCache.get(key);
-        
         if (prev) {
           const timeDelta = (now - prev.time) / 1000;
           if (timeDelta > 0) {
-            // formula: (delta_bytes * 8 bits) / seconds = bps
             uRate = Math.max(0, (bIn - prev.bIn) * 8 / timeDelta);
             dRate = Math.max(0, (bOut - prev.bOut) * 8 / timeDelta);
           }
         }
-        
         trafficCache.set(key, { time: now, bIn, bOut });
 
         const clientInfo = clients.find(c => c.username === username);
@@ -140,8 +157,8 @@ app.get('/api/mikrotik/active-sessions', async (req, res) => {
 });
 
 /**
- * PROVISIONING LOGIC: Comprehensive ZTP Script
- * Configures Bridges, Ports 2-10, Firewall, Mangle, and Walled Garden
+ * PRODUCTION ZTP SCRIPT
+ * Fixes: Captive Portal Detection, DNS Hijacking, and PPPoE Visibility
  */
 app.get('/boot', (req, res) => {
   const hostHeader = req.headers.host || '127.0.0.1:5000';
@@ -156,73 +173,64 @@ app.get('/boot', (req, res) => {
 
   res.set('Content-Type', 'text/plain');
   res.send(`
-/log info "--- [DARTBIT] STARTING ADVANCED PROVISIONING ---";
+/log info "--- [DARTBIT] STARTING PRODUCTION ZTP ---";
 :delay 1s;
 
-# 1. API & USER ACCESS
-:do { 
-    /user add name=dartbit group=full password=dartbit123 comment="dartbit Automated Bridge";
-} on-error={ 
-    /user set [find name=dartbit] password=dartbit123 group=full;
-};
+# 1. Management & API
+:do { /user add name=dartbit group=full password=dartbit123 comment="dartbit Engine"; } on-error={ /user set [find name=dartbit] password=dartbit123 group=full; };
 /ip service enable api;
 /ip service set api port=8728;
 
-# 2. SUBSCRIBER BRIDGE (ether2 to ether10)
-:do { 
-    /interface bridge add name=br-subs comment="Authenticated Subscriber Bridge" arp=reply-only;
-} on-error={ 
-    /interface bridge set [find name=br-subs] arp=reply-only;
-};
+# 2. Bridge Configuration (Strict Auth Mode)
+# Setting arp=reply-only ensures that only authenticated clients get an entry in the ARP table
+:do { /interface bridge add name=br-subs comment="Authenticated Backbone" arp=reply-only; } on-error={ /interface bridge set [find name=br-subs] arp=reply-only; };
 
 :for i from=2 to=10 do={
     :local ifName "ether$i";
-    :do {
-        /interface bridge port add bridge=br-subs interface=$ifName;
-    } on-error={
-        /interface bridge port set [find interface=$ifName] bridge=br-subs;
-    };
+    :do { /interface bridge port add bridge=br-subs interface=$ifName; } on-error={ /interface bridge port set [find interface=$ifName] bridge=br-subs; };
 };
 
-# 3. IP NETWORKING
-:do { /ip pool add name=pool-subs ranges=10.50.10.2-10.50.10.254; } on-error={};
+# 3. IP & DNS (DNS is mandatory for Captive Portal Detection)
+:do { /ip pool add name=pool-subs ranges=10.50.10.10-10.50.10.250; } on-error={};
 :do { /ip address add address=10.50.10.1/24 interface=br-subs; } on-error={};
+/ip dns set allow-remote-requests=yes servers=8.8.8.8,1.1.1.1;
 
-# 4. PPPoE SERVER SETUP
-:do { /ppp profile add name=prof-dartbit local-address=10.50.10.1 remote-address=pool-subs dns-server=8.8.8.8,1.1.1.1 use-encryption=yes; } on-error={};
-:do { /interface pppoe-server server add disabled=no interface=br-subs service-name=pppoe-dartbit default-profile=prof-dartbit one-session-per-host=yes; } on-error={};
+# 4. DHCP Server (Triggers the 'Sign In' prompt on smartphones)
+:do { /ip dhcp-server network add address=10.50.10.0/24 dns-server=10.50.10.1 gateway=10.50.10.1; } on-error={};
+:do { /ip dhcp-server add address-pool=pool-subs disabled=no interface=br-subs name=dhcp-subs lease-time=1h; } on-error={};
 
-# 5. HOTSPOT & WALLED GARDEN
+# 5. PPPoE Server Configuration
+# add-arp=yes is critical for the bridge's reply-only mode
+:do { /ppp profile add name=prof-dartbit local-address=10.50.10.1 remote-address=pool-subs dns-server=10.50.10.1 change-tcp-mss=yes add-arp=yes; } on-error={};
+:do { /interface pppoe-server server add disabled=no interface=br-subs service-name=dartbit-isp default-profile=prof-dartbit one-session-per-host=yes; } on-error={};
+
+# 6. Hotspot Configuration
 :do { /ip hotspot profile add name=hsprof-dartbit hotspot-address=10.50.10.1 login-by=http-chap,http-pap; } on-error={};
 :do { /ip hotspot add name=hs-dartbit interface=br-subs profile=hsprof-dartbit address-pool=pool-subs disabled=no; } on-error={};
-:do { /ip hotspot walled-garden add dst-host="${serverIp}" comment="Allow Billing Portal Access"; } on-error={};
+:do { /ip hotspot walled-garden add dst-host="${serverIp}" comment="Allow Portal Access"; } on-error={};
 
-# 6. FIREWALL & PERFORMANCE (Mangle rules for PPPoE MSS)
-/ip firewall nat add action=masquerade chain=srcnat out-interface=ether1 comment="NAT Internet Access";
-/ip firewall mangle add action=change-mss chain=forward new-mss=1440 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=1441-65535 comment="Fix PPPoE MSS Clamping";
+# 7. NAT & Mangle
+/ip firewall nat add action=masquerade chain=srcnat out-interface=ether1 comment="Internet NAT";
+/ip firewall mangle add action=change-mss chain=forward new-mss=1440 passthrough=yes protocol=tcp tcp-flags=syn tcp-mss=1441-65535 comment="PPPoE MSS Fix";
 
-# 7. INPUT PROTECTION
-/ip firewall filter add chain=input action=accept protocol=tcp dst-port=8728 comment="Allow API";
-/ip firewall filter add chain=input action=accept connection-state=established,related;
-/ip firewall filter add chain=input action=drop in-interface=!ether1 comment="Drop unauthorized local input";
-
-/log info "--- [DARTBIT] ZTP CONFIGURATION APPLIED SUCCESSFULLY ---";
+/log info "--- [DARTBIT] ZTP DEPLOYED & AUTH READY ---";
   `);
 });
 
-/**
- * CONTROL LOGIC: Remote Hardware Actions
- */
-app.post('/api/routers/:id/reboot', async (req, res) => {
-  const routers = readJson(DB.routers);
-  const router = routers.find(r => r.id === req.params.id);
-  if (!router) return res.status(404).json({ error: 'Router not found' });
-  const api = await getRouterConn(router);
-  try {
-    await api.connect();
-    await api.write('/system/reboot');
-    res.json({ success: true });
-  } catch (e) { res.json({ success: true, message: 'Rebooting' }); }
+app.post('/api/clients', async (req, res) => {
+  const clients = readJson(DB.clients);
+  const newClient = req.body;
+  const index = clients.findIndex(c => c.id === newClient.id);
+  if (index !== -1) clients[index] = newClient;
+  else clients.push(newClient);
+  writeJson(DB.clients, clients);
+
+  // Sync to all online routers immediately
+  const routers = readJson(DB.routers).filter(r => r.status === 'ONLINE');
+  for (const router of routers) {
+    syncClientToRouter(router, newClient);
+  }
+  res.json({ success: true });
 });
 
 app.get('/api/routers', async (req, res) => {
@@ -239,19 +247,9 @@ app.delete('/api/routers/:id', (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/clients', (req, res) => res.json(readJson(DB.clients)));
-app.post('/api/clients', async (req, res) => {
-  const clients = readJson(DB.clients);
-  const c = req.body;
-  const i = clients.findIndex(x => x.id === c.id);
-  if (i !== -1) clients[i] = c; else clients.push(c);
-  writeJson(DB.clients, clients);
-  res.json({ success: true });
-});
-
 app.get('/api/health', (req, res) => res.json({ success: true }));
+app.get('/api/clients', (req, res) => res.json(readJson(DB.clients)));
 app.get('/api/discovered', (req, res) => res.json(readJson(DB.discovery)));
-app.post('/api/discovery/clear', (req, res) => { writeJson(DB.discovery, []); res.json({ success: true }); });
 
 app.use(async (req, res, next) => {
   if (req.path.startsWith('/api') || req.path === '/boot') return next();
@@ -272,4 +270,4 @@ app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit ISP Backbone Live on Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 dartbit ISP Engine Live on Port ${PORT}`));
