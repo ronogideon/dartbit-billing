@@ -26,13 +26,11 @@ const MikroTikConfig: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [discoveryStatus, setDiscoveryStatus] = useState<'name' | 'waiting' | 'success'>('name');
-  const [discoveredInfo, setDiscoveredInfo] = useState<any>(null);
   const [sortKey, setSortKey] = useState<keyof RouterNode>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   
   const [nodeName, setNodeName] = useState('');
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const loadRouters = async () => {
     if (routers.length === 0) setLoading(true);
@@ -48,7 +46,7 @@ const MikroTikConfig: React.FC = () => {
 
   useEffect(() => {
     loadRouters();
-    const interval = setInterval(loadRouters, 4000);
+    const interval = setInterval(loadRouters, 5000); // 5s refresh for telemetry
     const handleClick = () => setActiveMenuId(null);
     window.addEventListener('click', handleClick);
     return () => { clearInterval(interval); window.removeEventListener('click', handleClick); };
@@ -61,11 +59,6 @@ const MikroTikConfig: React.FC = () => {
     await mikrotikService.clearDiscovery();
   };
 
-  const handleBeginWaiting = () => {
-    if (!nodeName) return;
-    setDiscoveryStatus('waiting');
-  };
-
   const pollIntervalRef = useRef<any>(null);
   useEffect(() => {
     if (isProvisioning && discoveryStatus === 'waiting') {
@@ -73,7 +66,6 @@ const MikroTikConfig: React.FC = () => {
         const found = await mikrotikService.discoverRouters();
         if (found && found.length > 0) {
           const node = found[found.length - 1];
-          setDiscoveredInfo(node);
           setDiscoveryStatus('success');
           clearInterval(pollIntervalRef.current);
           
@@ -98,21 +90,17 @@ const MikroTikConfig: React.FC = () => {
 
   const handleReboot = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm("Reboot physical hardware? This will disconnect clients.")) return;
-    setActionLoading(id);
+    if (!confirm("Confirm remote hardware reboot? Active sessions will drop.")) return;
     try {
       await mikrotikService.rebootRouter(id);
-    } catch (err) {
-      console.error(err);
     } finally {
-      setActionLoading(null);
       setActiveMenuId(null);
     }
   };
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm("Remove from platform registry?")) return;
+    if (!confirm("Remove hardware from network registry?")) return;
     await mikrotikService.deleteRouter(id);
     loadRouters();
   };
@@ -134,13 +122,13 @@ const MikroTikConfig: React.FC = () => {
              <Network className="text-blue-600" size={24} />
              <h1 className="text-2xl font-black text-slate-900 tracking-tight">Access Backbone</h1>
           </div>
-          <p className="text-slate-500 text-sm font-medium mt-1">Real-time hardware status and live telemetry.</p>
+          <p className="text-slate-500 text-sm font-medium mt-1">Live hardware telemetry and automated node provisioning.</p>
         </div>
         <button 
           onClick={handleStartOnboarding} 
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 active:scale-95 transition-all"
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95"
         >
-          <Plus size={18} /> Add Physical Node
+          <Plus size={18} /> Provision New Node
         </button>
       </header>
 
@@ -148,15 +136,15 @@ const MikroTikConfig: React.FC = () => {
         {loading && routers.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center gap-4 text-slate-400">
             <Loader2 className="animate-spin text-blue-600" size={40} />
-            <p className="text-xs font-black uppercase tracking-widest animate-pulse">Detecting Hardware...</p>
+            <p className="text-xs font-black uppercase tracking-widest animate-pulse">Syncing Telemetry...</p>
           </div>
         ) : routers.length === 0 ? (
           <div className="py-32 text-center space-y-4">
             <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto border-2 border-dashed border-slate-200">
                <Network className="text-slate-200" size={40} />
             </div>
-            <h3 className="text-lg font-bold text-slate-800">Zero Connected Nodes</h3>
-            <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium">Use the provisioning wizard to bridge your MikroTik boards.</p>
+            <h3 className="text-lg font-bold text-slate-800">No Managed Nodes</h3>
+            <p className="text-slate-500 text-sm max-w-xs mx-auto font-medium">Use the ZTP wizard to link your MikroTik hardware.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -166,12 +154,10 @@ const MikroTikConfig: React.FC = () => {
                   <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest cursor-pointer group" onClick={() => { setSortKey('name'); setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); }}>
                     <div className="flex items-center gap-2">Board Name <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
                   </th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Model / RouterOS</th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">CPU/RAM</th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center cursor-pointer group" onClick={() => { setSortKey('sessions'); setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); }}>
-                    <div className="flex items-center justify-center gap-2">Clients <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100" /></div>
-                  </th>
-                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">State</th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Hardware / OS</th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">Resources</th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center">Active Users</th>
+                  <th className="px-10 py-6 text-[10px] font-black text-slate-700 uppercase tracking-widest">Connectivity</th>
                   <th className="px-10 py-6 text-right"></th>
                 </tr>
               </thead>
@@ -190,25 +176,23 @@ const MikroTikConfig: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-10 py-7">
-                      <p className="text-xs font-bold text-slate-800 uppercase">{router.model || 'Unknown'}</p>
-                      <p className="text-[9px] font-black text-blue-600 uppercase">OS v{router.version || '0.0'}</p>
+                      <p className="text-xs font-bold text-slate-800 uppercase">{router.model || 'MikroTik Board'}</p>
+                      <p className="text-[9px] font-black text-blue-600 uppercase tracking-wider">v{router.version || '0.0'}</p>
                     </td>
                     <td className="px-10 py-7">
-                      <div className="flex flex-col gap-2 max-w-[120px] mx-auto">
+                      <div className="space-y-2 max-w-[120px] mx-auto">
                         <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase">
                           <span>CPU: {router.cpu}%</span>
                           <span>RAM: {router.memory}MB</span>
                         </div>
                         <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={`h-full transition-all duration-1000 ${router.cpu > 80 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${router.cpu}%` }}></div>
+                          <div className={`h-full transition-all duration-1000 ${router.cpu > 70 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${router.cpu}%` }}></div>
                         </div>
                       </div>
                     </td>
                     <td className="px-10 py-7 text-center">
-                      <div className="flex flex-col items-center">
-                         <span className="text-lg font-black text-slate-900">{router.sessions}</span>
-                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Active</span>
-                      </div>
+                      <span className="text-lg font-black text-slate-900">{router.sessions}</span>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Authenticated</p>
                     </td>
                     <td className="px-10 py-7">
                       <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-[10px] font-black uppercase border ${router.status === 'ONLINE' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
@@ -223,11 +207,11 @@ const MikroTikConfig: React.FC = () => {
                       {activeMenuId === router.id && (
                         <div className="absolute right-10 top-16 w-52 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 py-1.5 animate-in zoom-in-95 overflow-hidden">
                           <button onClick={(e) => handleReboot(e, router.id)} className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black uppercase text-slate-700 hover:bg-slate-50 transition-colors">
-                             <Power size={16} className="text-blue-600" /> Reboot Hardware
+                             <Power size={16} className="text-blue-600" /> Restart Board
                           </button>
                           <div className="h-px bg-slate-100 mx-2 my-1"></div>
                           <button onClick={(e) => handleDelete(e, router.id)} className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black uppercase text-red-600 hover:bg-red-50 transition-colors">
-                            <Trash2 size={16} /> Remove Node
+                            <Trash2 size={16} /> Delete Registry
                           </button>
                         </div>
                       )}
@@ -242,50 +226,50 @@ const MikroTikConfig: React.FC = () => {
 
       {isProvisioning && (
         <div className="fixed inset-0 z-[120] bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-[3rem] shadow-2xl max-w-xl w-full overflow-hidden border border-white/20 flex flex-col">
+          <div className="bg-white rounded-[3rem] shadow-2xl max-w-xl w-full overflow-hidden border border-white/20 flex flex-col animate-in zoom-in-95 duration-300">
             <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-4">
                 <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-xl shadow-blue-600/20"><Zap size={24} /></div>
-                <h2 className="text-2xl font-black text-slate-900 tracking-tight">ZTP Wizard</h2>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">ZTP Deployment</h2>
               </div>
               <button onClick={() => setIsProvisioning(false)} className="text-slate-400 hover:text-slate-900 transition-colors"><X size={36} /></button>
             </div>
 
             <div className="p-10 space-y-8">
               {discoveryStatus === 'name' && (
-                <div className="space-y-8 animate-in slide-in-from-bottom-6 duration-500">
+                <div className="space-y-8">
                   <div className="text-center space-y-2">
-                    <h3 className="text-xl font-bold text-slate-900">Step 1: Board Alias</h3>
-                    <p className="text-sm text-slate-500 font-medium">How should this MikroTik appear in your dashboard?</p>
+                    <h3 className="text-xl font-bold text-slate-900">Define Board Alias</h3>
+                    <p className="text-sm text-slate-500 font-medium">Identify this hardware in your dashboard.</p>
                   </div>
-                  <input autoFocus className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black text-xl outline-none focus:border-blue-600 transition-all text-center" placeholder="e.g. Core-Switch-HQ" value={nodeName} onChange={(e) => setNodeName(e.target.value)} />
-                  <button onClick={handleBeginWaiting} disabled={!nodeName} className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-lg shadow-2xl active:scale-95 transition-all">
-                    Generate Provisioning Command
+                  <input autoFocus className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl font-black text-xl outline-none focus:border-blue-600 transition-all text-center" placeholder="e.g. Sector-B-CCR" value={nodeName} onChange={(e) => setNodeName(e.target.value)} />
+                  <button onClick={() => setDiscoveryStatus('waiting')} disabled={!nodeName} className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-lg shadow-2xl active:scale-95 transition-all">
+                    Fetch Provisioning Script
                   </button>
                 </div>
               )}
 
               {discoveryStatus === 'waiting' && (
-                <div className="space-y-8 animate-in slide-in-from-bottom-6 duration-500">
+                <div className="space-y-8">
                   <div className="bg-slate-900 rounded-[2rem] p-8 relative group border border-white/5 shadow-2xl">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Master Provisioning Script</p>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Paste into MikroTik Terminal</p>
                     <code className="block text-xs font-mono text-blue-400 break-all leading-loose">{ztpCommand}</code>
-                    <button onClick={() => navigator.clipboard.writeText(ztpCommand)} className="absolute right-6 top-6 p-3 bg-white/10 text-white rounded-2xl hover:bg-white/20"><Copy size={20} /></button>
+                    <button onClick={() => navigator.clipboard.writeText(ztpCommand)} className="absolute right-6 top-6 p-3 bg-white/10 text-white rounded-2xl hover:bg-white/20 transition-all"><Copy size={20} /></button>
                   </div>
                   <div className="flex flex-col items-center gap-6 py-10 border-4 border-dashed border-slate-100 rounded-[2.5rem] bg-slate-50/50">
                     <RefreshCw className="animate-spin text-blue-600" size={40} />
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Awaiting Remote Handshake</p>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Waiting for Handshake...</p>
                   </div>
                 </div>
               )}
 
               {discoveryStatus === 'success' && (
-                <div className="text-center space-y-8 animate-in zoom-in-95 duration-500 py-10">
+                <div className="text-center space-y-8 py-10 animate-in zoom-in-95 duration-500">
                   <div className="mx-auto w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center shadow-xl">
                     <ShieldCheck size={48} />
                   </div>
-                  <h3 className="text-3xl font-black text-slate-900">Hardware Linked!</h3>
-                  <p className="text-slate-500 text-sm font-medium">Provisioning script applied to <b>{nodeName}</b> successfully.</p>
+                  <h3 className="text-3xl font-black text-slate-900">Config Applied!</h3>
+                  <p className="text-slate-500 text-sm font-medium">Hardware <b>{nodeName}</b> is now managed via API.</p>
                 </div>
               )}
             </div>
